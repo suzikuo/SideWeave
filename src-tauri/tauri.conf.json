@@ -1,0 +1,38 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "SideWeave",
+  "version": "1.0.60",
+  "identifier": "com.agiletiles.app",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "nsis",
+    "icon": ["icons/icon.ico"],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDcyMTkxNTM1ODFFNEM1MEMKUldRTXhlU0JOUlVaY2dndStVd3Z4SVAvMEpwQnpTUGRvczVGMkVmSDJ6T0p1N3Rmay9lVDUxaDAK",
+      "endpoints": [
+        "https://github.com/suzikuo/SideWeave/releases/download/update-manifest/latest.json"
+      ]
+    },
+    "deep-link": {
+      "desktop": {
+        "schemes": ["sideweave"]
+      }
+    }
+  }
+}

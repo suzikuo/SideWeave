@@ -1,0 +1,547 @@
+<script setup lang="ts">
+import { invoke } from '@tauri-apps/api/core'
+/** 简单设置（#/settings）：单列快速设置流；插件管理、系统信息与诊断请前往控制中心 */
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import Icon from '../ui/Icon.vue'
+import HotkeyRecorder from '../ui/HotkeyRecorder.vue'
+import RangeSlider from '../ui/RangeSlider.vue'
+import Toast from '../ui/Toast.vue'
+import { getPerformanceStatus, setSetting } from '../lib/api'
+import { marketInstalled } from '../lib/marketApi'
+import { applySkinWithRecommendedOpacity, type InstalledSkinAppearance } from '../lib/skinAppearance'
+import { autostartRef, settingsRef } from '../lib/store'
+import type { PerformanceProfile, PerformanceStatusPayload } from '../lib/types'
+
+const ACCENT_SWATCHES = ['#006874', '#006A6A', '#4F6354', '#7A5900', '#6750A4']
+
+const settings = computed(() => settingsRef.value)
+const userSkins = ref<InstalledSkinAppearance[]>([])
+const activeSkinId = computed(() => settings.value?.appearance.skin ?? 'default')
+const skinOptions = computed(() => [
+  { id: 'default', label: '默认' },
+  ...userSkins.value.map((skin) => ({ id: `user:${skin.id}`, label: skin.name }))
+])
+
+async function reloadUserSkins() {
+  try {
+    userSkins.value = (await marketInstalled()).skins.map(({ id, name, appearanceDefaults }) => ({
+      id,
+      name,
+      appearanceDefaults
+    }))
+  } catch {
+    // Keep the default option available if the installed skin list cannot be read.
+  }
+}
+
+watch(activeSkinId, (skinId, previousSkinId) => {
+  if (skinId !== previousSkinId && skinId.startsWith('user:')) void reloadUserSkins()
+})
+
+const perfStatus = ref<PerformanceStatusPayload | null>(null)
+
+const profileLabels: Record<PerformanceProfile, string> = {
+  eco: '省资源',
+  balanced: '平衡',
+  performance: '极速',
+  auto: '自动'
+}
+
+async function loadPerfStatus() {
+  try {
+    perfStatus.value = await getPerformanceStatus()
+  } catch (e) {
+    console.error('获取性能状态失败', e)
+  }
+}
+
+const perfDesc = computed(() => {
+  if (!perfStatus.value) return '自适应调度策略'
+  const { userProfile, effectiveProfile, memory } = perfStatus.value
+  const effLabel = profileLabels[effectiveProfile] || effectiveProfile
+  const memText = memory
+    ? `（可用 ${(memory.availPhysBytes / (1024 ** 3)).toFixed(1)} GB / 负荷 ${memory.memoryLoadPct}%）`
+    : ''
+  if (userProfile === 'auto') {
+    return `根据系统可用内存与负荷动态决策 · 当前生效：${effLabel}${memText}`
+  }
+  if (userProfile === 'performance') {
+    return `窗口后台静默预热 · 双窗口常驻保活 · 极速 120ms 响应${memText}`
+  }
+  if (userProfile === 'balanced') {
+    return `侧边栏与悬浮预览保活 · 详情卡闲置 30s 销毁回收${memText}`
+  }
+  return `按需创建 WebView · 关闭即刻销毁 · 极低资源占用${memText}`
+})
+
+async function changePerformanceProfile(profile: PerformanceProfile) {
+  await change('general', 'performance_profile', profile)
+  await loadPerfStatus()
+}
+
+const toast = ref('')
+const toastKind = ref<'info' | 'error' | 'success'>('info')
+function showToast(message: string, kind: 'info' | 'error' | 'success' = 'info') {
+  toastKind.value = kind
+  toast.value = ''
+  requestAnimationFrame(() => {
+    toast.value = message
+  })
+}
+
+// ---------- 主题生效标记（本地 matchMedia，不写 lib/） ----------
+
+const darkQuery = window.matchMedia('(prefers-color-scheme: dark)')
+const systemDark = ref(darkQuery.matches)
+function onSchemeChange(e: MediaQueryListEvent) {
+  systemDark.value = e.matches
+}
+/** 实际生效主题：显式取所选，system 时跟随系统 */
+const effectiveModeLabel = computed(() => {
+  const mode = settingsRef.value?.appearance.theme_mode
+  const eff = !mode || mode === 'system' ? (systemDark.value ? 'dark' : 'light') : mode
+  return eff === 'dark' ? '深色' : '浅色'
+})
+
+/** 滑块气泡格式化 */
+const fmtMs = (v: number) => `${v} ms`
+const fmtPercent = (v: number) => `${Math.round(v * 100)}%`
+
+onMounted(() => {
+  darkQuery.addEventListener('change', onSchemeChange)
+  loadPerfStatus()
+  void reloadUserSkins()
+})
+onUnmounted(() => darkQuery.removeEventListener('change', onSchemeChange))
+
+async function change(category: string, key: string, value: unknown) {
+  try {
+    if (category === 'appearance' && key === 'skin') {
+      const skinId = String(value)
+      if (settingsRef.value?.appearance.skin === skinId) return
+      settingsRef.value = await applySkinWithRecommendedOpacity(skinId, userSkins.value)
+    } else {
+      settingsRef.value = await setSetting(category, key, value)
+    }
+    if (category === 'general' && key === 'run_on_startup') {
+      autostartRef.value = Boolean(value)
+    }
+  } catch (e) {
+    showToast(String(e), 'error')
+  }
+}
+
+/** 热键提交：Rust 校验并即时重注册；失败时 settingsRef 未变，自动回显旧值 */
+async function changeHotkey(value: string) {
+  try {
+    settingsRef.value = await setSetting('shortcuts', 'toggle_sidebar', value)
+    showToast('热键已更新', 'success')
+  } catch (e) {
+    showToast(String(e), 'error')
+  }
+}
+
+/** 打开控制中心（插件管理、系统信息与诊断），与详情页复用同一个窗口 */
+async function changeControlCenterHotkey(value: string) {
+  try {
+    settingsRef.value = await setSetting('shortcuts', 'control_center', value)
+    showToast(value ? '热键已更新' : '热键已清除', 'success')
+  } catch (e) {
+    showToast(String(e), 'error')
+  }
+}
+
+async function openControlCenter() {
+  try {
+    await invoke<void>('open_control_center')
+  } catch (e) {
+    showToast(String(e), 'error')
+  }
+}
+</script>
+
+<template>
+  <div v-if="settings" class="settings">
+    <div class="card row-card">
+      <div class="row-main">
+        <div class="row-title">界面缩放</div>
+        <div class="row-desc">调整宿主窗口和插件页面的显示大小</div>
+      </div>
+      <RangeSlider
+        :model-value="settings.appearance.interface_scale"
+        :min="0.7"
+        :max="1.6"
+        :step="0.01"
+        :format="fmtPercent"
+        aria-label="界面缩放"
+        @commit="(v) => change('appearance', 'interface_scale', v)"
+      />
+    </div>
+
+    <!-- 主题 -->
+    <div class="card row-card">
+      <div class="row-main">
+        <div class="row-title">主题</div>
+        <div class="row-desc">当前生效：{{ effectiveModeLabel }}</div>
+      </div>
+      <div class="segmented">
+        <button
+          v-for="m in (['light', 'dark', 'system'] as const)"
+          :key="m"
+          :class="{ on: settings.appearance.theme_mode === m }"
+          :aria-label="`主题：${m === 'light' ? '浅色' : m === 'dark' ? '深色' : '跟随系统'}`"
+          @click="change('appearance', 'theme_mode', m)"
+        >
+          {{ m === 'light' ? '浅色' : m === 'dark' ? '深色' : '跟随系统' }}
+        </button>
+      </div>
+    </div>
+
+    <!-- 皮肤 -->
+    <div class="card row-card">
+      <div class="row-main">
+        <div class="row-title">皮肤</div>
+        <div class="row-desc">表现形式，与主题独立组合</div>
+      </div>
+      <div class="segmented">
+        <button
+          v-for="s in skinOptions"
+          :key="s.id"
+          :class="{ on: settings.appearance.skin === s.id }"
+          :aria-label="`皮肤：${s.label}`"
+          @click="change('appearance', 'skin', s.id)"
+        >
+          {{ s.label }}
+        </button>
+      </div>
+    </div>
+
+    <!-- 强调色 -->
+    <div class="card row-card">
+      <div class="row-main">
+        <div class="row-title">强调色</div>
+      </div>
+      <div class="swatches">
+        <button
+          v-for="c in ACCENT_SWATCHES"
+          :key="c"
+          class="swatch"
+          :style="{ background: c }"
+          :class="{ on: settings.appearance.accent_color.toUpperCase() === c.toUpperCase() }"
+          :aria-label="`强调色 ${c}`"
+          @click="change('appearance', 'accent_color', c)"
+        />
+        <input
+          type="color"
+          class="swatch custom"
+          :value="settings.appearance.accent_color"
+          aria-label="自定义强调色"
+          @change="change('appearance', 'accent_color', ($event.target as HTMLInputElement).value)"
+        />
+      </div>
+    </div>
+
+<!-- 停靠位置 -->
+    <div class="card row-card">
+      <div class="row-main">
+        <div class="row-title">停靠位置</div>
+      </div>
+      <div class="segmented">
+        <button
+          v-for="p in (['left', 'right', 'top'] as const)"
+          :key="p"
+          :class="{ on: settings.appearance.sidebar_position === p }"
+          :aria-label="`停靠位置：${p === 'left' ? '左侧' : p === 'right' ? '右侧' : '顶部'}`"
+          @click="change('appearance', 'sidebar_position', p)"
+        >
+          {{ p === 'left' ? '左侧' : p === 'right' ? '右侧' : '顶部' }}
+        </button>
+      </div>
+    </div>
+
+    <!-- 悬停展开 -->
+    <div class="card row-card">
+      <div class="row-main">
+        <div class="row-title">悬停展开侧边栏</div>
+        <div class="row-desc">鼠标移到屏幕边缘时自动展开</div>
+      </div>
+      <input
+        type="checkbox"
+        class="switch"
+        role="switch"
+        aria-label="悬停展开侧边栏"
+        :checked="settings.general.enable_mouse_hover"
+        @change="change('general', 'enable_mouse_hover', ($event.target as HTMLInputElement).checked)"
+      />
+    </div>
+
+    <!-- 自动隐藏延迟 -->
+    <div class="card row-card">
+      <div class="row-main">
+        <div class="row-title">自动隐藏延迟</div>
+        <div class="row-desc">鼠标离开后 {{ settings.general.auto_hide_delay }} ms 收起</div>
+      </div>
+      <RangeSlider
+        :model-value="settings.general.auto_hide_delay"
+        :min="0"
+        :max="10000"
+        :step="100"
+        :format="fmtMs"
+        aria-label="自动隐藏延迟"
+        @commit="(v) => change('general', 'auto_hide_delay', v)"
+      />
+    </div>
+
+    <!-- 悬停预览延迟 -->
+    <div class="card row-card">
+      <div class="row-main">
+        <div class="row-title">悬停预览延迟</div>
+        <div class="row-desc">鼠标悬停插件图标 {{ settings.general.hover_preview_delay ?? 350 }} ms 后显示卡片</div>
+      </div>
+      <RangeSlider
+        :model-value="settings.general.hover_preview_delay ?? 350"
+        :min="50"
+        :max="2000"
+        :step="50"
+        :format="fmtMs"
+        aria-label="悬停预览延迟"
+        @commit="(v) => change('general', 'hover_preview_delay', v)"
+      />
+    </div>
+
+    <!-- 运行模式 -->
+    <div class="card row-card">
+      <div class="row-main">
+        <div class="row-title">运行模式</div>
+        <div class="row-desc">{{ perfDesc }}</div>
+      </div>
+      <div class="segmented">
+        <button
+          v-for="p in ([
+            { id: 'eco', label: '省资源' },
+            { id: 'balanced', label: '平衡' },
+            { id: 'performance', label: '极速' },
+            { id: 'auto', label: '自动' }
+          ] as const)"
+          :key="p.id"
+          :class="{ on: (settings.general.performance_profile ?? 'balanced') === p.id }"
+          :aria-label="`运行模式：${p.label}`"
+          @click="changePerformanceProfile(p.id)"
+        >
+          {{ p.label }}
+        </button>
+      </div>
+    </div>
+
+    <!-- 开机自启 -->
+    <div class="card row-card">
+      <div class="row-main">
+        <div class="row-title">开机自启</div>
+        <div class="row-desc">登录 Windows 后自动启动 SideWeave</div>
+      </div>
+      <input
+        type="checkbox"
+        class="switch"
+        role="switch"
+        aria-label="开机自启"
+        :checked="autostartRef"
+        @change="change('general', 'run_on_startup', ($event.target as HTMLInputElement).checked)"
+      />
+    </div>
+
+    <!-- 显示/隐藏侧边栏热键 -->
+    <div class="card row-card">
+      <div class="row-main">
+        <div class="row-title">显示 / 隐藏侧边栏热键</div>
+        <div class="row-desc">全局热键，修改后立即生效</div>
+      </div>
+      <HotkeyRecorder
+        :model-value="settings.shortcuts.toggle_sidebar"
+        @commit="changeHotkey"
+      />
+    </div>
+
+    <!-- 呼出控制中心热键 -->
+    <div class="card row-card">
+      <div class="row-main">
+        <div class="row-title">呼出控制中心热键</div>
+        <div class="row-desc">全局热键；留空 = 不启用</div>
+      </div>
+      <HotkeyRecorder
+        :model-value="settings.shortcuts.control_center"
+        @commit="changeControlCenterHotkey"
+      />
+    </div>
+
+    <!-- 市场/云端：插件中心与皮肤中心入口（位于控制中心导航） -->
+    <div class="card row-card more-card">
+      <div class="row-main">
+        <div class="row-title">市场 / 云端</div>
+        <div class="row-desc">插件中心与皮肤中心在控制中心左侧导航</div>
+      </div>
+      <button class="btn accent" type="button" @click="openControlCenter">
+        <Icon name="blocks" :size="14" />
+        打开市场
+      </button>
+    </div>
+
+    <!-- 更多设置：入口到完整控制中心 -->
+    <div class="card row-card more-card">
+      <div class="row-main">
+        <div class="row-title">更多设置</div>
+        <div class="row-desc">插件管理、系统信息与诊断在控制中心</div>
+      </div>
+      <button class="btn accent" type="button" @click="openControlCenter">
+        <Icon name="layout-dashboard" :size="14" />
+        打开控制中心
+      </button>
+    </div>
+
+    <Toast :message="toast" :kind="toastKind" @done="toast = ''" />
+  </div>
+</template>
+
+<style scoped>
+.settings {
+  max-width: 640px;
+}
+
+.card {
+  background: color-mix(in srgb, var(--surface-subtle) calc(var(--component-opacity, 1) * 100%), transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
+  border-radius: var(--radius, 12px);
+  margin-bottom: 10px;
+}
+
+.row-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+}
+
+.row-main {
+  min-width: 0;
+}
+
+.row-title {
+  font-size: 13px;
+  font-weight: 500;
+}
+.row-desc {
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+/* "更多设置"入口卡片：强调色描边突出这是跳转行为 */
+.more-card {
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+.btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.btn.accent {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* switch 样式（与控制中心一致） */
+.switch {
+  appearance: none;
+  width: 40px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--border);
+  position: relative;
+  cursor: pointer;
+  transition: background 0.2s ease;
+  flex: none;
+}
+.switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s ease;
+}
+.switch:checked {
+  background: var(--accent);
+}
+.switch:checked::after {
+  transform: translateX(18px);
+}
+
+.segmented {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--border) 40%, transparent);
+  flex: none;
+}
+.segmented button {
+  padding: 5px 12px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.segmented button.on {
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.swatches {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+.swatch {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+}
+.swatch.on {
+  border-color: var(--text);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--text) 25%, transparent);
+}
+.swatch.custom {
+  width: 28px;
+  height: 28px;
+  border: 1px dashed var(--border-strong);
+  background: transparent;
+  padding: 0;
+}
+</style>
