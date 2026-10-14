@@ -1,0 +1,25 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "SideWeave 主窗口能力",
+  "windows": [
+    "sidebar",
+    "detail",
+    "clock",
+    "reader",
+    "thiefbook-reader",
+    "control",
+    "hover_preview",
+    "host-notifications",
+    "host-sidebar-notifications",
+    "note-*"
+  ],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-start-resize-dragging",
+    "core:window:allow-close",
+    "core:event:default",
+    "deep-link:default"
+  ]
+}

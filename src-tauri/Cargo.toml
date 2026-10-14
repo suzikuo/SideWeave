@@ -1,0 +1,76 @@
+[package]
+name = "sidebar-tauri"
+version = "1.0.0"
+description = "SideWeave - 桌面侧边栏与插件市场"
+edition = "2021"
+
+[lib]
+name = "sidebar_tauri_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[features]
+# 生产构建必需：cargo build --release --features custom-protocol
+# （npm run tauri build 会自动带上；缺了它 release 仍会去连 devUrl）
+custom-protocol = ["tauri/custom-protocol"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+agile-tiles-plugin-api = { path = "../crates/plugin-api" }
+agile-tiles-plugin-sdk = { path = "../crates/plugin-sdk" }
+agile-tiles-plugin-runtime = { path = "../crates/plugin-runtime" }
+agile-tiles-plugin-ipc = { path = "../crates/plugin-ipc" }
+tauri = { version = "2", features = ["tray-icon", "image-ico", "unstable"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-global-shortcut = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+# 二维码识别（toolbox）：图片解码 + QR 解码
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "bmp", "gif"] }
+rqrr = "0.7"
+# 剪贴板历史（arboard）
+arboard = "3"
+chrono = { version = "0.4", features = ["clock"] }
+# GitHub 静态市场：HTTPS、zip 解压、SHA256 与 Minisign 验证
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "json"] }
+tokio = { version = "1", features = ["rt", "macros", "net", "sync", "time", "io-util", "process"] }
+hyper = { version = "1", features = ["http1", "server"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+url = "2"
+percent-encoding = "2"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+sha2 = "0.10"
+minisign-verify = "0.3"
+tauri-plugin-updater = "2"
+tauri-plugin-deep-link = "2"
+# app_launcher 插件 exe 图标提取（HICON → PNG）
+png = "0.17"
+base64 = "0.22"
+
+[target.'cfg(windows)'.dependencies]
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
+windows-sys = { version = "0.59", features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Gdi",
+  "Win32_Security",
+  "Win32_Security_Cryptography",
+  "Win32_Storage_FileSystem",
+  "Win32_System_IO",
+  "Win32_System_JobObjects",
+  "Win32_System_Pipes",
+  "Win32_System_SystemInformation",
+  "Win32_System_Threading",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
+] }
+
+[profile.release]
+# 极致优化：全量 LTO + 单线程代码生成（构建较慢，二进制最优——用户选定）
+strip = true
+lto = true
+codegen-units = 1

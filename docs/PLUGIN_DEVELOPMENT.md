@@ -1,0 +1,248 @@
+# SideWeave 插件开发
+
+## 目录约定
+
+插件包由三部分组成：
+
+```text
+my-plugin/
+├── Cargo.toml
+├── manifest.json
+├── src/lib.rs
+└── ui/
+    ├── index.html
+    ├── public/icon.svg
+    └── src/
+```
+
+`manifest.json` 使用 `manifestVersion`、`apiVersion`、`icon`、`runtime`、`trust`、`capabilities` 和 `ui` 字段。旧的 `permissions` 字段继续读取。`icon` 是相对插件包根目录的图标资源路径，示例里的 `ui/public/icon.svg` 会由 Vite 复制为 `ui/icon.svg`，所以 manifest 填 `ui/icon.svg`。支持 SVG、PNG、WebP、JPEG 和 ICO；留空、文件缺失或格式不支持时，宿主显示默认拼图图标。宿主按图标透明度使用当前主题前景色着色，建议提供透明背景的单色线框 SVG。`trust` 只是插件声明，最终有效信任由宿主授予；插件不能靠 manifest 自己获得 `trusted_local`。
+
+## 本地开发
+
+复制 `tools/plugin-template` 到 `plugins/<id>`，替换示例 ID，然后加入根 workspace。后端只依赖 `agile-tiles-plugin-api` 和 `agile-tiles-plugin-sdk`，通过 `PluginContext` 使用存储、文件、窗口和系统能力。
+
+```powershell
+cargo test -p agile-tiles-plugin-demo --features agile-tiles-plugin-sdk/mock
+npm run typecheck
+npm run build
+```
+
+插件 UI 使用独立 Vite 入口。manifest 的 `ui.entry` 必须指向构建后的详情页，资源路径必须位于插件自己的资源根目录内。
+
+Web 插件使用 `agile-plugin://localhost/<plugin-id>/<asset-path>` 资源协议。宿主会校验插件 ID、`assetRoot`、相对路径和规范化后的资源位置，再提供 HTML、CSS、JavaScript、图片或字体；插件 UI 必须通过 `window.agileTiles` 调用宿主能力，不能直接调用 Tauri API。
+
+### iframe 暂停与恢复
+
+详情页只显示当前插件 iframe。其他 iframe 会从渲染树隐藏，宿主通过 UI SDK 的 `onPluginLifecycle(handler)` 通知插件暂停和恢复。插件应在收到 `false` 时停止轮询、计时器和持续动画；收到 `true` 时刷新可能过期的数据并恢复必要活动。回调会立即收到当前状态，组件卸载时调用返回的取消函数。
+
+```ts
+import { onUnmounted } from 'vue'
+import { onPluginLifecycle } from '../../../ui-sdk/runtime'
+
+const stopLifecycleListener = onPluginLifecycle((active) => {
+  if (active) startPolling()
+  else stopPolling()
+})
+onUnmounted(stopLifecycleListener)
+```
+
+插件 UI 作为顶层页面独立运行时，SDK 会跟随页面可见性；嵌入详情页时以宿主发送的状态为准。
+纯 HTML 插件可监听 `message`，只接受 `event.source === window.parent`、`__agileTiles === true`、`type === 'lifecycle'` 且 `plugin_id` 匹配的消息，并按 `active` 字段暂停或恢复。
+
+workspace 内官方插件的 DLL 和 UI 构建产物由 `scripts/build-plugin-packages.ps1` 放入 `market/plugins/<id>-<version>.zip`；详情窗口外壳属于宿主，详情页 HTML、Vue/React 代码、CSS 和资源属于插件。
+
+## UI 状态与 `plugin_call` 边界
+
+iframe 内不涉及外部副作用的操作应完全由插件前端处理，不调用 `plugin_call`：
+
+- 打开或关闭新增/编辑表单
+- 输入框、文本域、搜索框和草稿状态
+- 表单校验、选项卡、筛选和排序
+- 显示或隐藏插件自己的弹窗
+
+需要保存数据或调用宿主能力时才使用 `plugin_call` / `window.agileTiles.plugin`：
+
+- 读取、保存、删除插件数据
+- 文件选择、图标提取、启动进程或打开外部 URL
+- 创建或控制独立桌面窗口
+- 跨窗口事件和跨插件通信
+
+例如启动器的 `openAdd` / `openEdit` 只是前端状态，不应调用后端；列表初始化、保存应用、选择 exe 和启动应用则必须调用后端。便签“新建”如果直接创建并持久化独立桌面便签，不属于纯表单操作，因此仍需要调用后端；如果改成 iframe 内草稿表单，应在最终保存时再调用创建接口。
+
+## 独立 DLL 插件包
+
+可信本地 Windows 插件默认使用 `dynamic_library` runtime。宿主启动时遍历 `%APPDATA%/com.agiletiles.app/user_plugins/<id>`，校验 `.trusted-local`、manifest 和 `plugin.dll` 后，在主进程内加载 DLL。DLL 必须通过 SDK 导出的 `agile_tiles_plugin_entry` 入口，不要跨 DLL 传递 Rust trait 对象或 Tauri 类型。
+
+```text
+my-plugin/
+├── manifest.json
+├── plugin.dll
+└── ui/
+    ├── index.html
+    ├── assets/
+    └── ...
+```
+
+```json
+{
+  "manifestVersion": 1,
+  "apiVersion": 1,
+  "id": "my-plugin",
+  "name": "My Plugin",
+  "icon": "ui/icon.svg",
+  "version": "1.0.0",
+  "type": "native",
+  "publisher": "your-publisher-id",
+  "key_id": "main-2026",
+  "runtime": "dynamic_library",
+  "backend": "plugin.dll",
+  "trust": "trusted_local",
+  "requires_trust": true,
+  "capabilities": ["storage"],
+  "ui": {
+    "entry": "ui/index.html",
+    "kind": "vue",
+    "assetRoot": "ui"
+  }
+}
+```
+
+模板或 workspace 官方插件的构建与本地安装：
+
+```powershell
+npm run build:plugins
+npm run plugin:dev-install
+```
+
+更新只修改同一插件 ID 的版本，插件中心会覆盖 `user_plugins/<id>`，而私有数据保存在 `plugin-data/<id>`。
+
+## 独立外部插件包
+
+需要脱离宿主独立更新的 Windows 插件使用 `external_process` runtime：
+
+```text
+my-plugin/
+├── manifest.json
+├── backend/my-plugin.exe
+└── ui/
+    ├── index.html
+    ├── assets/
+    └── ...
+```
+
+```json
+{
+  "manifestVersion": 1,
+  "apiVersion": 1,
+  "id": "my-plugin",
+  "name": "My Plugin",
+  "icon": "ui/icon.svg",
+  "version": "1.0.0",
+  "type": "native",
+  "publisher": "your-publisher-id",
+  "key_id": "main-2026",
+  "runtime": "external_process",
+  "backend": "backend/my-plugin.exe",
+  "trust": "trusted_local",
+  "requires_trust": true,
+  "capabilities": ["storage"],
+  "ui": {
+    "entry": "ui/index.html",
+    "kind": "html",
+    "assetRoot": "ui"
+  }
+}
+```
+
+宿主会校验 `backend` 和 `ui.entry` 必须是包内相对路径，外部进程以插件包目录为工作目录启动，详情页资源通过 `agile-plugin://` 加载。UI 构建工具需要使用相对资源路径（例如 Vite 的 `base: './'`），不能依赖宿主的 `/assets` 根路径。可信插件可以在自己的进程中使用 Windows API，但仍通过 SDK/RPC 入口与宿主交互。
+
+zip 根目录必须直接包含 `manifest.json`、`backend/...` 和 `ui/...`，不要再包一层仓库目录。宿主启动 backend 时会传入 `--pipe <named-pipe>` 和 `--plugin-id <id>`；进程先用 `plugin-ipc` 读取 `PluginWireMessage::Handshake`，回复握手后处理 `PluginRequest`。`plugins/ssh-process` 可作为外部进程适配器示例。
+
+本地导入成功后，插件放在 `%APPDATA%/com.agiletiles.app/user_plugins/<id>`；重启宿主会自动发现并启动已授信的 external 包，不需要修改侧边栏主项目。
+
+官方插件不再由安装器预置；使用插件中心的一键安装、更新或本地导入入口。市场 native 包必须通过 SHA256 和 Minisign 校验；首次安装第三方 publisher 密钥或遇到密钥变化时，应用会显示 publisher 与指纹并询问用户是否授信。Capabilities 不会限制 native 二进制直接访问系统。
+
+## 权限声明
+
+插件需要在 `manifest.json.capabilities` 声明自己会用到的宿主能力。宿主只允许以下清单中的权限名；清单的代码权威来源是 `agile-tiles-plugin-api::permissions`，包括各权限常量和 `permissions::ALL`。Rust 插件可直接引用这些常量，避免手写字符串。
+
+| 权限名 | 用途 |
+| --- | --- |
+| `storage` | 读写插件自己的设置与密钥存储 |
+| `notification.system` | 发送 Windows 原生通知 |
+| `notification.desktop` | 显示宿主样式的桌面通知 |
+| `notification.sidebar` | 显示侧边栏气泡通知 |
+| `event.publish` | 向宿主事件总线发布事件 |
+| `filesystem.read` | 读取宿主管理的插件私有文件 |
+| `filesystem.write` | 写入或删除插件私有文件 |
+| `filesystem.external_read` | 读取用户通过文件选择器选中的外部文件 |
+| `clipboard` | 读取或写入系统剪贴板 |
+| `process.spawn` | 通过宿主启动外部进程 |
+| `network.listen` | 声明插件需要监听网络端口 |
+| `network.connect` | 声明插件需要连接网络 |
+| `window.create` | 通过宿主创建插件原生窗口 |
+| `window.manage` | 显示、隐藏、移动或控制插件原生窗口 |
+| `shortcut.global` | 注册或注销全局快捷键 |
+| `system.open_external` | 使用系统默认浏览器打开链接 |
+| `system.file_picker` | 打开系统文件选择器 |
+| `system.icon` | 请求宿主提取文件图标 |
+
+旧清单中的 `notification` 仍作为兼容别名接受，相当于同时声明三种通知权限；新插件应使用三个细分权限。声明只是申请能力：宿主 API 调用还需要用户在“控制中心 → 插件 → 权限”中授权。未声明的宿主能力会被拒绝，用户也不能打开插件未声明的权限。
+
+例如 Rust 插件可以这样声明：
+
+```rust
+use agile_tiles_plugin_api::permissions;
+
+let requested = vec![
+    permissions::STORAGE.into(),
+    permissions::NOTIFICATION_DESKTOP.into(),
+];
+```
+
+`network.listen` 和 `network.connect` 当前用于声明记录；受信任的本地 DLL 或独立进程可以直接调用操作系统网络 API，宿主无法通过这些开关拦截。相同的信任边界也适用于可信本地代码直接访问文件、进程和剪贴板。Web 沙箱的本地文件和系统能力经宿主 API 执行并受权限控制。插件的 `trusted_local` 字段不能自行授予信任，最终信任来源仍由宿主决定。
+
+## Native backend startup policy
+
+Native `dynamic_library` and `external_process` packages may set `autoStart` in `manifest.json`. It defaults to `true` for compatibility with older packages. Use `true` when `Activate` starts behavior that must run before the user opens the plugin UI (for example, a global shortcut or a persisted tunnel). Set it to `false` for on-demand plugins; the host loads the backend and sends `Activate` when the plugin first makes a `Call` or `GetInfo` request. An explicit `Activate` request also loads the backend.
+
+```json
+{
+  "runtime": "dynamic_library",
+  "backend": "plugin.dll",
+  "autoStart": false
+}
+```
+
+## Windows trusted external plugin
+
+需要独立进程隔离的可信本地插件可以独立于宿主构建。当前 SSH sidecar 使用这条路径：
+
+```powershell
+npm run build:ssh-sidecar
+npm run tauri dev
+```
+
+需要进程隔离时单独构建并打包为 `external_process` 插件；宿主与进程之间使用 SDK wire protocol 和 Windows Named Pipe。已废弃的 Gateway/local-proxy 不再属于官方构建或发布路径。
+
+Cloudflare Tunnel 是新的 `dynamic_library` 官方插件，直接管理 `cloudflared` 子进程，不需要 Gateway sidecar：
+
+```powershell
+npm run plugin:dev-install -- -PluginId cloudflare_tunnel
+```
+
+重启 SideWeave 后，在插件中心打开 Cloudflare Tunnel；插件可以选择 Dashboard Token 模式，或选择 credentials JSON 并维护本地 `config.yaml` 的 ingress 规则。
+
+## 脱离 Tauri 测试
+
+SDK 提供可选的 `mock` feature：
+
+```toml
+agile-tiles-plugin-sdk = { version = "0.1", features = ["mock"] }
+```
+
+测试中用 `MockHostServices` 创建 `PluginContext`，不需要启动 Tauri。插件协议还提供 `PluginWireMessage::encode/decode`，外部进程可以直接使用大小受限的 JSON frame。
+
+## 独立仓库
+
+当前 workspace 使用 path dependency，便于同步开发。SDK 仓库边界、官方插件仓库命名、版本和发布物约定见 `docs/PLUGIN_REPOSITORY.md`。拆到独立仓库时，将 API/SDK 的 path dependency 替换为固定 Git tag 或发布版本，并将 backend、`manifest.json` 和 UI 构建产物一起打包；插件业务代码不应依赖主项目 `src-tauri` 或内部模块。`tools/plugin-template/ui` 已是独立 Vite 工程，不依赖宿主的 `src` 路径。

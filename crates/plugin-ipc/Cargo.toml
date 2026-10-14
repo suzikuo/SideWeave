@@ -1,0 +1,8 @@
+[package]
+name = "agile-tiles-plugin-ipc"
+version = "0.1.0"
+edition = "2021"
+description = "Length-delimited IPC frames for Agile Tiles external plugins"
+
+[dependencies]
+agile-tiles-plugin-api = { version = "0.1.0", path = "../plugin-api" }

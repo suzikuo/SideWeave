@@ -1,0 +1,89 @@
+name: Publish official plugin or skin
+
+on:
+  push:
+    tags:
+      - "plugin-*-v*"
+      - "skin-*-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    outputs:
+      asset_name: ${{ steps.package.outputs.asset_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci
+      - name: Build package
+        id: package
+        shell: pwsh
+        env:
+          SIDEWEAVE_OFFICIAL_PUBLISHER_KEY_ID: ${{ vars.SIDEWEAVE_OFFICIAL_PUBLISHER_KEY_ID }}
+        run: |
+          if (-not $env:SIDEWEAVE_OFFICIAL_PUBLISHER_KEY_ID) { throw "Set SIDEWEAVE_OFFICIAL_PUBLISHER_KEY_ID in repository variables" }
+          if ($env:GITHUB_REF_NAME -match '^plugin-(?<id>[a-z0-9_-]+)-v(?<version>\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$') {
+            $id = $Matches.id
+            $version = $Matches.version
+            & scripts/internal/build-plugin-packages.ps1 -PluginId $id -BuildProfile release -MarketDir "./dist/release"
+            if ($LASTEXITCODE -ne 0) { throw "Plugin build failed" }
+            $asset = "dist/release/plugins/$id-$version.zip"
+            if (-not (Test-Path -LiteralPath $asset -PathType Leaf)) { throw "Built plugin version does not match tag $env:GITHUB_REF_NAME" }
+          } elseif ($env:GITHUB_REF_NAME -match '^skin-(?<id>[a-z0-9_-]+)-v(?<version>\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$') {
+            $id = $Matches.id
+            $version = $Matches.version
+            & scripts/internal/package-skin.ps1 -SkinId $id -Version $version
+            if ($LASTEXITCODE -ne 0) { throw "Skin package build failed" }
+            $asset = "dist/release/skins/$id-$version.zip"
+          } else {
+            throw "Tag must be plugin-<id>-v<version> or skin-<id>-v<version>"
+          }
+          "asset_name=$(Split-Path -Leaf $asset)" >> $env:GITHUB_OUTPUT
+      - uses: actions/upload-artifact@v4
+        with:
+          name: official-package
+          path: dist/release/**/*.zip
+          if-no-files-found: error
+
+  sign-and-release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: official-package
+          path: dist
+      - name: Sign package and write SHA256
+        env:
+          SIDEWEAVE_PLUGIN_SIGNING_KEY: ${{ secrets.SIDEWEAVE_PLUGIN_SIGNING_KEY }}
+          SIDEWEAVE_OFFICIAL_PUBLISHER_KEY: ${{ vars.SIDEWEAVE_OFFICIAL_PUBLISHER_KEY }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes minisign
+          test -n "$SIDEWEAVE_PLUGIN_SIGNING_KEY"
+          mapfile -t archives < <(find dist -type f -name '*.zip' -print)
+          test "${#archives[@]}" -eq 1
+          archive="${archives[0]}"
+          test -n "$archive"
+          printf '%s' "$SIDEWEAVE_PLUGIN_SIGNING_KEY" > dist/publisher.key
+          minisign -R -s dist/publisher.key -p dist/publisher.pub
+          public_key="$(tail -n 1 dist/publisher.pub | tr -d '\r\n')"
+          test "$public_key" = "$SIDEWEAVE_OFFICIAL_PUBLISHER_KEY"
+          minisign -S -s dist/publisher.key -m "$archive" -x "$archive.minisig"
+          sha256sum "$archive" > "$archive.sha256"
+          rm -f dist/publisher.key dist/publisher.pub
+      - name: Create package Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          archive="$(find dist -type f -name '*.zip' -print -quit)"
+          test -n "$archive"
+          gh release create "$GITHUB_REF_NAME" "$archive" "$archive.minisig" "$archive.sha256" --repo "$GITHUB_REPOSITORY" --verify-tag --latest=false --title "$GITHUB_REF_NAME" --notes "Signed SideWeave plugin or skin package"
