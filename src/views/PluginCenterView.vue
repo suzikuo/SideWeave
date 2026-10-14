@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** 插件中心：浏览 SideWeave 市场，安装 / 更新 / 打开 / 移除独立插件。 */
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import Icon from '../ui/Icon.vue'
 import Toast from '../ui/Toast.vue'
 import {
@@ -53,14 +53,82 @@ function isInstalling(id: string): boolean {
   return Boolean(installing.value[id])
 }
 
-/** 可用插件：同一 ID 只在一个列表显示；已安装插件的更新入口统一放在下方 */
-const available = computed<MarketItem[]>(() => {
-  const items = index.value?.plugins ?? []
-  return items.filter((m) => {
-    const inst = installedOf(m.id)
-    return !inst
-  })
+type MarketTab = 'discover' | 'installed' | 'updates'
+type MarketView = 'grid' | 'list'
+type SortMode = 'directory' | 'name-asc' | 'name-desc'
+type PluginTypeFilter = 'all' | 'web' | 'native'
+
+const activeTab = ref<MarketTab>('discover')
+const searchQuery = ref('')
+const typeFilter = ref<PluginTypeFilter>('all')
+const verifiedOnly = ref(false)
+const sortMode = ref<SortMode>('directory')
+watch(activeTab, (tab) => {
+  if (tab !== 'discover') {
+    typeFilter.value = 'all'
+    verifiedOnly.value = false
+  }
 })
+
+function readSavedView(): MarketView {
+  try {
+    return window.localStorage.getItem('sideweave.market.plugin.view') === 'list' ? 'list' : 'grid'
+  } catch {
+    return 'grid'
+  }
+}
+
+const viewMode = ref<MarketView>(readSavedView())
+watch(viewMode, (value) => {
+  try {
+    window.localStorage.setItem('sideweave.market.plugin.view', value)
+  } catch {
+    // The view switch remains usable when browser storage is unavailable.
+  }
+})
+
+const catalogItems = computed<MarketItem[]>(() => index.value?.plugins ?? [])
+const updateCount = computed(() => installed.value.filter((item) => Boolean(item.updateVersion)).length)
+
+function matchesSearch(query: string, fields: Array<string | undefined>): boolean {
+  if (!query) return true
+  const normalized = query.trim().toLocaleLowerCase()
+  return fields.some((field) => field?.toLocaleLowerCase().includes(normalized))
+}
+
+function sortByName<T extends { name: string }>(items: T[]): T[] {
+  if (sortMode.value === 'directory') return items
+  const direction = sortMode.value === 'name-asc' ? 1 : -1
+  return [...items].sort((a, b) => direction * a.name.localeCompare(b.name, 'zh-CN'))
+}
+
+const visibleCatalog = computed(() => {
+  const query = searchQuery.value.trim()
+  const items = catalogItems.value.filter((item) => {
+    if (typeFilter.value !== 'all' && item.type !== typeFilter.value) return false
+    if (verifiedOnly.value && !item.verified) return false
+    return matchesSearch(query, [
+      item.name, item.id, item.description, item.author, item.publisher,
+      item.type, item.repository, item.verified ? '已审核 verified' : '待审核 unverified',
+      ...permissionNames(item.capabilities)
+    ])
+  })
+  return sortByName(items)
+})
+
+const visibleInstalled = computed(() => {
+  const items = installed.value.filter((item) => {
+    if (activeTab.value === 'updates' && !item.updateVersion) return false
+    return matchesSearch(searchQuery.value, [
+      item.name, item.id, item.description, item.author, item.version,
+      item.updateVersion ?? '', item.runtime ?? ''
+    ])
+  })
+  return sortByName(items)
+})
+
+const visibleCount = computed(() => activeTab.value === 'discover' ? visibleCatalog.value.length : visibleInstalled.value.length)
+const tabTitle = computed(() => activeTab.value === 'discover' ? '发现插件' : activeTab.value === 'installed' ? '已安装插件' : '可更新插件')
 
 const importingLocal = ref(false)
 
@@ -198,6 +266,16 @@ function updateInstalled(item: InstalledItem) {
   void installById(item.id, item.name)
 }
 
+function updateCatalogItem(item: MarketItem) {
+  const current = installedOf(item.id)
+  if (current?.updateVersion) updateInstalled(current)
+}
+
+function openCatalogItem(item: MarketItem) {
+  const current = installedOf(item.id)
+  if (current) void openInstalled(current)
+}
+
 /** 打开已安装插件：所有运行时统一交给详情宿主解析。 */
 async function openInstalled(it: InstalledItem) {
   try {
@@ -229,22 +307,47 @@ async function removeInstalled(item: InstalledItem) {
 
 <template>
   <div class="market">
-    <!-- 顶部：统计 chip + 刷新 -->
     <div class="toolbar">
       <div class="chips">
-        <span class="chip accent">已安装 {{ installed.length }}</span>
-        <span v-if="updatedAtText" class="chip" title="市场目录更新时间">目录：{{ updatedAtText }}</span>
+        <span class="chip accent">目录 {{ catalogItems.length }}</span>
+        <span class="chip">已安装 {{ installed.length }}</span>
+        <span v-if="updateCount" class="chip warn">待更新 {{ updateCount }}</span>
+        <span v-if="updatedAtText" class="chip updated-time" title="市场目录更新时间">目录更新：{{ updatedAtText }}</span>
       </div>
       <div class="btn-group">
-        <button class="btn" :disabled="loading || importingLocal" @click="importLocal">
-          <Icon name="plus" :size="14" /> 本地导入
-        </button>
-        <button class="btn" :disabled="loading" @click="reload">
-          <Icon name="refresh" :size="14" :class="{ spin: loading }" />
-          刷新
-        </button>
+        <button class="btn" :disabled="loading || importingLocal" @click="importLocal"><Icon name="plus" :size="14" /> 本地导入</button>
+        <button class="btn" :disabled="loading" @click="reload"><Icon name="refresh" :size="14" :class="{ spin: loading }" /> 刷新目录</button>
       </div>
     </div>
+
+    <section class="market-controls" aria-label="插件市场工具">
+      <label class="search-field">
+        <Icon name="search" :size="16" />
+        <input v-model="searchQuery" type="search" placeholder="搜索名称、描述、发布者或权限…" aria-label="搜索插件" />
+        <button v-if="searchQuery" class="clear-search" type="button" aria-label="清除搜索" @click="searchQuery = ''"><Icon name="x" :size="14" /></button>
+      </label>
+      <div class="control-actions">
+        <template v-if="activeTab === 'discover'">
+          <select v-model="typeFilter" class="select-control" aria-label="按插件类型筛选">
+            <option value="all">所有类型</option><option value="web">Web 插件</option><option value="native">Native Beta</option>
+          </select>
+          <button class="btn filter-button" :class="{ selected: verifiedOnly }" type="button" :aria-pressed="verifiedOnly" @click="verifiedOnly = !verifiedOnly"><Icon name="check" :size="14" /> 仅看已审核</button>
+        </template>
+        <select v-model="sortMode" class="select-control sort-control" aria-label="插件排序">
+          <option value="directory">目录顺序</option><option value="name-asc">名称 A–Z</option><option value="name-desc">名称 Z–A</option>
+        </select>
+        <div class="view-toggle" role="group" aria-label="展示方式">
+          <button class="view-button" :class="{ active: viewMode === 'grid' }" type="button" aria-label="卡片视图" title="卡片视图" :aria-pressed="viewMode === 'grid'" @click="viewMode = 'grid'"><Icon name="grid" :size="15" /></button>
+          <button class="view-button" :class="{ active: viewMode === 'list' }" type="button" aria-label="列表视图" title="列表视图" :aria-pressed="viewMode === 'list'" @click="viewMode = 'list'"><Icon name="list" :size="16" /></button>
+        </div>
+      </div>
+    </section>
+
+    <nav class="market-tabs" aria-label="插件分类">
+      <button class="market-tab" :class="{ active: activeTab === 'discover' }" @click="activeTab = 'discover'">发现 <span>{{ catalogItems.length }}</span></button>
+      <button class="market-tab" :class="{ active: activeTab === 'installed' }" @click="activeTab = 'installed'">已安装 <span>{{ installed.length }}</span></button>
+      <button class="market-tab" :class="{ active: activeTab === 'updates' }" @click="activeTab = 'updates'">有更新 <span :class="{ 'count-warn': updateCount }">{{ updateCount }}</span></button>
+    </nav>
 
     <!-- 加载中 -->
     <div v-if="loading" class="state">
@@ -260,85 +363,49 @@ async function removeInstalled(item: InstalledItem) {
       <button class="btn" @click="reload"><Icon name="refresh" :size="14" /> 重试</button>
     </div>
 
-    <!-- 列表区 -->
-    <div v-else class="lists">
-      <h3 class="group-label">可用插件（{{ available.length }}）</h3>
-      <p v-if="available.length === 0" class="empty-row">云端没有可安装的插件</p>
-      <div v-for="m in available" :key="m.id" class="item">
-        <div class="item-main">
-          <div class="item-title">
-            <strong>{{ m.name }}</strong>
-            <span class="ver-badge">v{{ m.latest }}</span>
-            <span v-if="m.type === 'native'" class="chip warn" title="Native 插件拥有本机代码执行能力">Native Beta</span>
-            <span v-if="m.verified" class="chip">已审核</span>
-            <span v-else class="chip warn">未审核</span>
-            <span v-if="m.publisher" class="item-author">{{ m.publisher }}</span>
+    <section v-else class="market-content" aria-live="polite">
+      <div class="results-heading"><div><h3>{{ tabTitle }}</h3><span>显示 {{ visibleCount }} 项</span></div><span v-if="searchQuery || typeFilter !== 'all' || verifiedOnly" class="filter-summary">筛选结果</span></div>
+      <div v-if="activeTab === 'discover'" class="results" :class="viewMode">
+        <article v-for="item in visibleCatalog" :key="item.id" class="market-item">
+          <div class="item-head"><div class="product-icon"><Icon name="blocks" :size="21" /></div><div class="item-main">
+            <div class="item-title"><strong>{{ item.name }}</strong><span class="ver-badge">v{{ item.latest }}</span></div>
+            <div class="item-subtitle"><span class="item-id">{{ item.id }}</span><span v-if="item.publisher || item.author">· {{ item.publisher || item.author }}</span></div>
+            <p class="item-desc">{{ item.description || '暂无描述' }}</p>
+          </div></div>
+          <div class="item-details">
+            <div class="item-badges"><span class="chip" :class="{ warn: item.type === 'native' }">{{ item.type === 'native' ? 'Native Beta' : 'Web 插件' }}</span>
+              <span v-if="item.verified" class="chip verified">已审核</span><span v-else class="chip warn">未审核</span>
+              <span v-if="installedOf(item.id)" class="chip accent">已安装</span><span v-if="installedOf(item.id)?.updateVersion" class="chip warn">可更新至 v{{ installedOf(item.id)?.updateVersion }}</span>
+            </div>
+            <div class="item-permissions"><strong>请求权限</strong><template v-if="item.capabilities.length"><span v-for="permission in permissionNames(item.capabilities)" :key="permission" class="permission-chip">{{ permission }}</span></template><span v-else class="permission-empty">未声明宿主 API 权限</span></div>
+            <p v-if="item.repository" class="item-source">来源：{{ item.repository }}</p>
           </div>
-          <p class="item-desc">{{ m.description || '暂无描述' }}</p>
-          <div class="item-permissions">
-            <strong>请求权限</strong>
-            <template v-if="m.capabilities.length">
-              <span v-for="permission in permissionNames(m.capabilities)" :key="permission" class="permission-chip">
-                {{ permission }}
-              </span>
-            </template>
-            <span v-else class="permission-empty">未声明宿主 API 权限</span>
+          <div class="item-actions">
+            <button v-if="installedOf(item.id)?.updateVersion" class="btn accent" :disabled="isInstalling(item.id)" @click="updateCatalogItem(item)"><Icon name="refresh" :size="13" :class="{ spin: isInstalling(item.id) }" />{{ isInstalling(item.id) ? '更新中…' : '更新' }}</button>
+            <button v-else-if="installedOf(item.id)" class="btn" @click="openCatalogItem(item)"><Icon name="play" :size="13" />打开</button>
+            <button v-else class="btn accent" :disabled="isInstalling(item.id)" @click="install(item)"><Icon :name="isInstalling(item.id) ? 'refresh' : 'plus'" :size="13" :class="{ spin: isInstalling(item.id) }" />{{ isInstalling(item.id) ? '安装中…' : '安装' }}</button>
           </div>
-          <p v-if="m.repository" class="item-source">来源：{{ m.repository }}</p>
-        </div>
-        <div class="item-actions">
-          <button
-            v-if="!installedOf(m.id)"
-            class="btn accent"
-            :disabled="isInstalling(m.id)"
-            @click="install(m)"
-          >
-            <Icon v-if="isInstalling(m.id)" name="refresh" :size="13" class="spin" />
-            <Icon v-else name="plus" :size="13" />
-            {{ isInstalling(m.id) ? '安装中…' : '安装' }}
-          </button>
-          <span class="chip">可安装</span>
-        </div>
+        </article>
       </div>
-
-      <h3 class="group-label">已安装（{{ installed.length }}）</h3>
-      <p v-if="installed.length === 0" class="empty-row">还没有安装任何插件</p>
-      <div v-for="it in installed" :key="it.id" class="item">
-        <div class="item-main">
-          <div class="item-title">
-            <strong>{{ it.name }}</strong>
-            <span class="ver-badge">v{{ it.version }}</span>
-            <span v-if="it.runtime === 'dynamic_library'" class="chip" title="可信本地 DLL 插件">本地 DLL</span>
-            <span v-else-if="it.runtime === 'external_process'" class="chip" title="独立进程插件">独立进程</span>
-            <span v-if="it.updateVersion" class="chip warn">有更新</span>
+      <div v-else class="results" :class="viewMode">
+        <article v-for="item in visibleInstalled" :key="item.id" class="market-item">
+          <div class="item-head"><div class="product-icon"><Icon name="blocks" :size="21" /></div><div class="item-main">
+            <div class="item-title"><strong>{{ item.name }}</strong><span class="ver-badge">v{{ item.version }}</span><span v-if="item.runtime === 'dynamic_library'" class="chip">本地 DLL</span><span v-else-if="item.runtime === 'external_process'" class="chip">独立进程</span><span v-if="item.updateVersion" class="chip warn">有更新</span></div>
+            <div class="item-subtitle"><span class="item-id">{{ item.id }}</span><span v-if="item.author">· {{ item.author }}</span></div>
+            <p class="item-desc">{{ item.description || '暂无描述' }}</p>
+          </div></div>
+          <div class="item-actions"><button class="btn" @click="openInstalled(item)"><Icon name="play" :size="13" />打开</button>
+            <button v-if="item.updateVersion" class="btn accent" :disabled="isInstalling(item.id)" :title="'更新到 ' + item.updateVersion" @click="updateInstalled(item)"><Icon name="refresh" :size="13" :class="{ spin: isInstalling(item.id) }" />{{ isInstalling(item.id) ? '更新中…' : '更新' }}</button>
+            <button class="btn danger" :class="{ confirming: confirmRemove[item.id] }" @click="removeInstalled(item)"><Icon name="trash" :size="13" />{{ confirmRemove[item.id] ? '确认移除' : '移除' }}</button>
           </div>
-          <p class="item-desc">{{ it.description || '暂无描述' }}</p>
-        </div>
-        <div class="item-actions">
-          <button class="btn" @click="openInstalled(it)">
-            <Icon name="play" :size="13" /> 打开
-          </button>
-          <button
-            v-if="it.updateVersion"
-            class="btn accent"
-            :disabled="isInstalling(it.id)"
-            :title="`更新到 ${it.updateVersion}`"
-            @click="updateInstalled(it)"
-          >
-            <Icon v-if="isInstalling(it.id)" name="refresh" :size="13" class="spin" />
-            {{ isInstalling(it.id) ? '更新中…' : '更新' }}
-          </button>
-          <button
-            class="btn danger"
-            :class="{ confirming: confirmRemove[it.id] }"
-            @click="removeInstalled(it)"
-          >
-            <Icon name="trash" :size="13" />
-            {{ confirmRemove[it.id] ? '确认移除' : '移除' }}
-          </button>
-        </div>
+        </article>
       </div>
-    </div>
+      <div v-if="visibleCount === 0" class="empty-state"><div class="empty-icon"><Icon name="blocks" :size="22" /></div>
+        <strong>{{ searchQuery || typeFilter !== 'all' || verifiedOnly ? '没有找到匹配的插件' : activeTab === 'updates' ? '暂时没有可更新的插件' : activeTab === 'installed' ? '还没有安装插件' : '市场目录中暂无插件' }}</strong>
+        <p>{{ searchQuery || typeFilter !== 'all' || verifiedOnly ? '试试其他关键词或清除筛选条件。' : '插件安装后会显示在这里。' }}</p>
+        <button v-if="searchQuery || typeFilter !== 'all' || verifiedOnly" class="btn" @click="searchQuery = ''; typeFilter = 'all'; verifiedOnly = false">清除筛选</button>
+      </div>
+    </section>
 
     <Toast :message="toast" :kind="toastKind" @done="toast = ''" />
   </div>
@@ -581,5 +648,72 @@ async function removeInstalled(item: InstalledItem) {
   to {
     transform: rotate(360deg);
   }
+}
+
+.market { gap: 12px; min-height: 0; color: var(--text); }
+.toolbar { flex: none; }
+.updated-time { font-weight: 500; }
+.market-controls, .control-actions, .market-tabs { display: flex; align-items: center; }
+.market-controls { flex: none; gap: 9px; }
+.control-actions { flex: none; gap: 7px; flex-wrap: wrap; }
+.search-field { display: flex; flex: 1 1 220px; align-items: center; gap: 8px; min-width: 160px; height: 36px; padding: 0 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text-muted); }
+.search-field:focus-within { border-color: color-mix(in srgb, var(--accent) 70%, var(--border)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent); }
+.search-field input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text); font: inherit; font-size: 12px; }
+.search-field input::placeholder { color: var(--text-muted); opacity: .8; }
+.clear-search { display: grid; flex: none; place-items: center; width: 23px; height: 23px; border: 0; border-radius: 6px; background: transparent; color: var(--text-muted); }
+.clear-search:hover { background: var(--surface-subtle); color: var(--text); }
+.select-control { height: 36px; max-width: 145px; padding: 0 26px 0 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--text); font: inherit; font-size: 11px; }
+.sort-control { max-width: 130px; }
+.filter-button.selected { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); color: var(--accent); }
+.view-toggle { display: inline-flex; padding: 3px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); }
+.view-button { display: grid; place-items: center; width: 29px; height: 27px; border: 0; border-radius: 6px; background: transparent; color: var(--text-muted); }
+.view-button:hover { color: var(--text); }
+.view-button.active { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); }
+.market-tabs { flex: none; gap: 6px; border-bottom: 1px solid var(--border); }
+.market-tab { display: inline-flex; align-items: center; gap: 7px; padding: 8px 10px 9px; margin-bottom: -1px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--text-muted); font-size: 12px; font-weight: 600; }
+.market-tab:hover { color: var(--text); }
+.market-tab.active { border-bottom-color: var(--accent); color: var(--accent); }
+.market-tab span { min-width: 19px; padding: 2px 5px; border-radius: 999px; background: var(--surface-subtle); color: var(--text-muted); font-size: 10px; text-align: center; }
+.market-tab span.count-warn { background: color-mix(in srgb, var(--warning) 16%, transparent); color: var(--warning); }
+.market-content { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 1px 2px 8px 1px; }
+.results-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 2px 2px 10px; }
+.results-heading > div { display: flex; align-items: baseline; gap: 9px; }
+.results-heading h3 { margin: 0; font-size: 13px; font-weight: 650; }
+.results-heading span, .filter-summary { color: var(--text-muted); font-size: 10.5px; }
+.results { display: grid; gap: 9px; }
+.results.grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 310px), 1fr)); }
+.results.list { grid-template-columns: minmax(0, 1fr); }
+.market-item { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 12px; padding: 12px; border: 1px solid color-mix(in srgb, var(--border) 70%, transparent); border-radius: 12px; background: var(--surface-subtle); }
+.results.grid .market-item { min-height: 220px; flex-direction: column; align-items: stretch; padding: 14px; }
+.item-head { display: flex; flex: 1; align-items: flex-start; gap: 10px; min-width: 0; }
+.product-icon { display: grid; flex: none; place-items: center; width: 40px; height: 40px; border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent); border-radius: 11px; background: color-mix(in srgb, var(--accent) 9%, var(--surface)); color: var(--accent); }
+.item-subtitle { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 3px; color: var(--text-muted); font-size: 10px; }
+.item-id { opacity: .82; }
+.item-desc { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.item-details { min-width: 0; }
+.item-badges, .item-permissions { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; }
+.item-badges { margin-top: 2px; }
+.item-permissions { align-items: flex-start; margin-top: 8px; font-size: 10px; }
+.item-permissions strong { margin: 3px 2px 0 0; color: var(--text-muted); font-weight: 600; }
+.chip.verified { border-color: color-mix(in srgb, var(--accent) 30%, transparent); color: var(--accent); }
+.permission-chip { padding: 3px 7px; border: 1px solid color-mix(in srgb, var(--warning) 34%, transparent); border-radius: 999px; color: color-mix(in srgb, var(--warning) 80%, var(--text)); font-size: 9.5px; }
+.permission-empty { margin-top: 3px; color: var(--text-muted); }
+.item-source { overflow: hidden; margin: 7px 0 0; color: var(--text-muted); font-size: 9.5px; text-overflow: ellipsis; white-space: nowrap; }
+.results.grid .item-actions { margin-top: auto; }
+.empty-state { display: flex; min-height: 180px; flex-direction: column; align-items: center; justify-content: center; gap: 7px; margin-top: 6px; padding: 18px; border: 1px dashed color-mix(in srgb, var(--border) 70%, transparent); border-radius: 12px; text-align: center; color: var(--text-muted); }
+.empty-icon { display: grid; place-items: center; width: 42px; height: 42px; margin-bottom: 3px; border-radius: 13px; background: var(--surface-subtle); }
+.empty-state strong { color: var(--text); font-size: 12px; }
+.empty-state p { margin: 0; font-size: 11px; }
+@media (max-width: 720px) {
+  .market-controls { align-items: stretch; flex-direction: column; }
+  .control-actions { justify-content: space-between; }
+  .select-control, .sort-control { flex: 1; max-width: none; }
+  .results.list .market-item { align-items: flex-start; flex-direction: column; }
+  .results.list .item-actions { width: 100%; }
+}
+@media (max-width: 420px) {
+  .updated-time { display: none; }
+  .control-actions { gap: 5px; }
+  .filter-button { padding-inline: 8px; }
 }
 </style>
