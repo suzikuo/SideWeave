@@ -384,7 +384,7 @@ async function removeInstalled(item: InstalledItem) {
             <p v-if="item.repository" class="item-source">来源：{{ item.repository }}</p>
           </div>
           <div class="item-actions">
-            <button v-if="installedOf(item.id)?.updateVersion" class="btn accent" :disabled="isInstalling(item.id)" @click="updateCatalogItem(item)">
+            <button v-if="installedOf(item.id)?.updateVersion" class="btn update" :disabled="isInstalling(item.id)" @click="updateCatalogItem(item)">
               <Icon name="refresh" :size="13" :class="{ spin: isInstalling(item.id) }" />{{ isInstalling(item.id) ? '更新中…' : '更新' }}
             </button>
             <button v-else-if="installedOf(item.id)" class="btn apply" :disabled="isCurrent(item.id)" @click="applyCatalogItem(item)">
@@ -410,7 +410,7 @@ async function removeInstalled(item: InstalledItem) {
           </div>
           <div class="item-actions">
             <button class="btn apply" :disabled="isCurrent(item.id)" @click="applySkin(item)"><Icon name="check" :size="13" />{{ isCurrent(item.id) ? '使用中' : '应用' }}</button>
-            <button v-if="item.updateVersion" class="btn accent" :disabled="isInstalling(item.id)" :title="'更新到 ' + item.updateVersion" @click="updateInstalled(item)">
+            <button v-if="item.updateVersion" class="btn update" :disabled="isInstalling(item.id)" :title="'更新到 ' + item.updateVersion" @click="updateInstalled(item)">
               <Icon name="refresh" :size="13" :class="{ spin: isInstalling(item.id) }" />{{ isInstalling(item.id) ? '更新中…' : '更新' }}
             </button>
             <button class="btn danger" :class="{ confirming: confirmRemove[item.id] }" @click="removeInstalled(item)"><Icon name="trash" :size="13" />{{ confirmRemove[item.id] ? '确认移除' : '移除' }}</button>
@@ -515,6 +515,17 @@ async function removeInstalled(item: InstalledItem) {
 .btn.accent:hover:not(:disabled) {
   filter: brightness(1.1);
   color: #fff;
+}
+.btn.update {
+  border-color: color-mix(in srgb, var(--warning) 46%, transparent);
+  background: color-mix(in srgb, var(--warning) 12%, var(--surface));
+  color: var(--warning);
+  font-weight: 600;
+}
+.btn.update:hover:not(:disabled) {
+  border-color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 19%, var(--surface));
+  color: var(--warning);
 }
 .btn.apply {
   border-color: transparent;

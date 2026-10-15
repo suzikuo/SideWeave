@@ -159,7 +159,7 @@ fn estimate_declarative_card_height(payload: &Value, max_height: u32) -> u32 {
             content_height += 92; // empty state, including its explanatory text
         } else {
             let rows = items.len().min(20) as u32;
-            content_height += (rows * 26 + rows.saturating_sub(1) * 4).min(146);
+            content_height += (rows * 30 + rows.saturating_sub(1) * 4).min(146);
         }
         sections += 1;
     } else if let Some(metrics) = payload
@@ -193,8 +193,8 @@ fn estimate_declarative_card_height(payload: &Value, max_height: u32) -> u32 {
         sections += 1;
     }
 
-    // The card has 12px of internal vertical padding and the transparent window adds 6px per side.
-    let estimated = content_height + sections.saturating_sub(1) * 8 + 36;
+    // Include the card border, 12px internal padding, and 6px transparent window padding per side.
+    let estimated = content_height + sections.saturating_sub(1) * 8 + 38;
     estimated.clamp(72.min(max_height), max_height.max(1))
 }
 

@@ -665,6 +665,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  flex-shrink: 0;
   max-height: 146px;
   overflow-y: auto;
   overflow-x: hidden;
@@ -691,6 +692,8 @@ onUnmounted(() => {
   cursor: pointer;
   transition: all 0.15s ease;
   width: 100%;
+  height: 30px;
+  flex: 0 0 30px;
   box-sizing: border-box;
   text-align: left;
 }

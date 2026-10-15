@@ -447,7 +447,7 @@ async function removeInstalled(item: InstalledItem) {
             <p v-if="item.repository" class="item-source">来源：{{ item.repository }}</p>
           </div>
           <div class="item-actions">
-            <button v-if="installedOf(item.id)?.updateVersion" class="btn accent" :disabled="isInstalling(item.id)" @click="updateCatalogItem(item)"><Icon name="refresh" :size="13" :class="{ spin: isInstalling(item.id) }" />{{ isInstalling(item.id) ? '更新中…' : '更新' }}</button>
+            <button v-if="installedOf(item.id)?.updateVersion" class="btn update" :disabled="isInstalling(item.id)" @click="updateCatalogItem(item)"><Icon name="refresh" :size="13" :class="{ spin: isInstalling(item.id) }" />{{ isInstalling(item.id) ? '更新中…' : '更新' }}</button>
             <button v-else-if="installedOf(item.id)" class="btn" @click="openCatalogItem(item)"><Icon name="info" :size="13" />详情</button>
             <button v-else class="btn accent" :disabled="isInstalling(item.id)" @click="install(item)"><Icon :name="isInstalling(item.id) ? 'refresh' : 'plus'" :size="13" :class="{ spin: isInstalling(item.id) }" />{{ isInstalling(item.id) ? '安装中…' : '安装' }}</button>
           </div>
@@ -461,7 +461,7 @@ async function removeInstalled(item: InstalledItem) {
             <p class="item-desc">{{ item.description || '暂无描述' }}</p>
           </div></div>
           <div class="item-actions"><button class="btn" @click="openInstalled(item)"><Icon name="play" :size="13" />打开</button>
-            <button v-if="item.updateVersion" class="btn accent" :disabled="isInstalling(item.id)" :title="'更新到 ' + item.updateVersion" @click="updateInstalled(item)"><Icon name="refresh" :size="13" :class="{ spin: isInstalling(item.id) }" />{{ isInstalling(item.id) ? '更新中…' : '更新' }}</button>
+            <button v-if="item.updateVersion" class="btn update" :disabled="isInstalling(item.id)" :title="'更新到 ' + item.updateVersion" @click="updateInstalled(item)"><Icon name="refresh" :size="13" :class="{ spin: isInstalling(item.id) }" />{{ isInstalling(item.id) ? '更新中…' : '更新' }}</button>
             <button class="btn danger" :class="{ confirming: confirmRemove[item.id] }" @click="removeInstalled(item)"><Icon name="trash" :size="13" />{{ confirmRemove[item.id] ? '确认移除' : '移除' }}</button>
           </div>
         </article>
@@ -567,6 +567,17 @@ async function removeInstalled(item: InstalledItem) {
 .btn.accent:hover:not(:disabled) {
   filter: brightness(1.1);
   color: #fff;
+}
+.btn.update {
+  border-color: color-mix(in srgb, var(--warning) 46%, transparent);
+  background: color-mix(in srgb, var(--warning) 12%, var(--surface));
+  color: var(--warning);
+  font-weight: 600;
+}
+.btn.update:hover:not(:disabled) {
+  border-color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 19%, var(--surface));
+  color: var(--warning);
 }
 .btn.danger {
   color: var(--danger);

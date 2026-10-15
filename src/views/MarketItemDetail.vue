@@ -132,13 +132,13 @@ const hasMarketMetadata = computed(() => Boolean(props.item.publisher || props.i
         <template v-if="kind === 'plugin'">
           <button v-if="installed" class="btn" type="button" @click="emit('open')"><Icon name="play" :size="14" />打开插件</button>
           <button v-if="installed" class="btn danger" :class="{ confirming: removeConfirm }" type="button" @click="emit('remove')"><Icon name="trash" :size="14" />{{ removeConfirm ? '确认移除' : '移除插件' }}</button>
-          <button v-if="installed?.updateVersion" class="btn accent" type="button" :disabled="busy" @click="emit('update')"><Icon name="refresh" :size="14" :class="{ spin: busy }" />更新到 v{{ installed.updateVersion }}</button>
+          <button v-if="installed?.updateVersion" class="btn update" type="button" :disabled="busy" @click="emit('update')"><Icon name="refresh" :size="14" :class="{ spin: busy }" />更新到 v{{ installed.updateVersion }}</button>
           <button v-else-if="!installed" class="btn accent" type="button" :disabled="busy" @click="emit('install')"><Icon :name="busy ? 'refresh' : 'plus'" :size="14" :class="{ spin: busy }" />{{ busy ? '正在安装…' : '安装插件' }}</button>
         </template>
         <template v-else>
           <button v-if="installed" class="btn apply" type="button" :disabled="current" @click="emit('apply')"><Icon name="check" :size="14" />{{ current ? '正在使用' : '应用皮肤' }}</button>
           <button v-if="installed" class="btn danger" :class="{ confirming: removeConfirm }" type="button" @click="emit('remove')"><Icon name="trash" :size="14" />{{ removeConfirm ? '确认移除' : '移除皮肤' }}</button>
-          <button v-if="installed?.updateVersion" class="btn accent" type="button" :disabled="busy" @click="emit('update')"><Icon name="refresh" :size="14" :class="{ spin: busy }" />更新到 v{{ installed.updateVersion }}</button>
+          <button v-if="installed?.updateVersion" class="btn update" type="button" :disabled="busy" @click="emit('update')"><Icon name="refresh" :size="14" :class="{ spin: busy }" />更新到 v{{ installed.updateVersion }}</button>
           <button v-else-if="!installed" class="btn accent" type="button" :disabled="busy" @click="emit('install')"><Icon :name="busy ? 'refresh' : 'plus'" :size="14" :class="{ spin: busy }" />{{ busy ? '正在安装…' : '安装皮肤' }}</button>
         </template>
       </footer>
@@ -189,6 +189,8 @@ const hasMarketMetadata = computed(() => Boolean(props.item.publisher || props.i
 .btn:disabled { opacity: .55; cursor: default; }
 .btn.accent { border-color: transparent; background: var(--accent); color: #fff; font-weight: 650; }
 .btn.accent:hover:not(:disabled) { filter: brightness(1.08); color: #fff; }
+.btn.update { border-color: color-mix(in srgb, var(--warning) 46%, transparent); background: color-mix(in srgb, var(--warning) 12%, var(--surface)); color: var(--warning); font-weight: 650; }
+.btn.update:hover:not(:disabled) { border-color: var(--warning); background: color-mix(in srgb, var(--warning) 19%, var(--surface)); color: var(--warning); }
 .btn.apply { border-color: transparent; background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
 .btn.danger { color: var(--danger); }
 .btn.danger.confirming { border-color: var(--danger); background: var(--danger); color: #fff; }
