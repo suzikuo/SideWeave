@@ -1,11 +1,11 @@
 //! Runtime registry and lifecycle orchestration for plugin adapters.
 
-use agile_tiles_plugin_api::{
+use sideweave_plugin_api::{
     ErrorCode, PluginError, PluginEvent, PluginHandshake, PluginHandshakeResponse, PluginId,
     PluginInfo, PluginRequest, PluginRequestKind, PluginResponse, PluginStatus, PluginTrust,
     API_VERSION,
 };
-use agile_tiles_plugin_sdk::{lifecycle_request, HostServices, Plugin, PluginContext};
+use sideweave_plugin_sdk::{lifecycle_request, HostServices, Plugin, PluginContext};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -51,7 +51,7 @@ impl PluginRegistry {
         if self.entries.contains_key(&id) {
             return Err(RuntimeError::AlreadyRegistered(id));
         }
-        let mut info = agile_tiles_plugin_sdk::plugin_info(plugin.as_ref());
+        let mut info = sideweave_plugin_sdk::plugin_info(plugin.as_ref());
         info.source = source.into();
         info.status = PluginStatus::Discovered;
         info.effective_trust = PluginTrust::TrustedLocal;
@@ -68,7 +68,7 @@ impl PluginRegistry {
 
     pub fn register_manifest(
         &mut self,
-        manifest: agile_tiles_plugin_api::PluginManifest,
+        manifest: sideweave_plugin_api::PluginManifest,
         location: impl Into<String>,
         source: impl Into<String>,
     ) -> Result<(), RuntimeError> {
@@ -77,7 +77,7 @@ impl PluginRegistry {
 
     pub fn register_external(
         &mut self,
-        manifest: agile_tiles_plugin_api::PluginManifest,
+        manifest: sideweave_plugin_api::PluginManifest,
         external: Box<dyn ExternalPlugin>,
         location: impl Into<String>,
         source: impl Into<String>,
@@ -143,7 +143,7 @@ impl PluginRegistry {
 
     pub fn register_trusted_local_manifest(
         &mut self,
-        manifest: agile_tiles_plugin_api::PluginManifest,
+        manifest: sideweave_plugin_api::PluginManifest,
         location: impl Into<String>,
         source: impl Into<String>,
     ) -> Result<(), RuntimeError> {
@@ -152,7 +152,7 @@ impl PluginRegistry {
 
     fn register_manifest_with_trust(
         &mut self,
-        manifest: agile_tiles_plugin_api::PluginManifest,
+        manifest: sideweave_plugin_api::PluginManifest,
         location: impl Into<String>,
         source: impl Into<String>,
         trust: PluginTrust,
@@ -238,7 +238,7 @@ impl PluginManager {
 
     pub fn discover_manifest(
         &mut self,
-        manifest: agile_tiles_plugin_api::PluginManifest,
+        manifest: sideweave_plugin_api::PluginManifest,
         location: impl Into<String>,
         source: impl Into<String>,
     ) -> Result<(), RuntimeError> {
@@ -247,7 +247,7 @@ impl PluginManager {
 
     pub fn discover_trusted_local_manifest(
         &mut self,
-        manifest: agile_tiles_plugin_api::PluginManifest,
+        manifest: sideweave_plugin_api::PluginManifest,
         location: impl Into<String>,
         source: impl Into<String>,
     ) -> Result<(), RuntimeError> {
@@ -257,7 +257,7 @@ impl PluginManager {
 
     pub fn register_external(
         &mut self,
-        manifest: agile_tiles_plugin_api::PluginManifest,
+        manifest: sideweave_plugin_api::PluginManifest,
         external: Box<dyn ExternalPlugin>,
         location: impl Into<String>,
         source: impl Into<String>,
@@ -276,7 +276,7 @@ impl PluginManager {
             .registry
             .get_mut(id)
             .ok_or_else(|| RuntimeError::NotFound(id.clone()))?;
-        if entry.info.runtime != agile_tiles_plugin_api::PluginRuntime::ExternalProcess
+        if entry.info.runtime != sideweave_plugin_api::PluginRuntime::ExternalProcess
             || entry.info.effective_trust != PluginTrust::TrustedLocal
             || entry.external.is_some()
             || entry.plugin.is_some()
@@ -308,8 +308,8 @@ impl PluginManager {
             .registry
             .get_mut(&id)
             .ok_or_else(|| RuntimeError::NotFound(id.clone()))?;
-        if manifest.runtime != agile_tiles_plugin_api::PluginRuntime::DynamicLibrary
-            || entry.info.runtime != agile_tiles_plugin_api::PluginRuntime::DynamicLibrary
+        if manifest.runtime != sideweave_plugin_api::PluginRuntime::DynamicLibrary
+            || entry.info.runtime != sideweave_plugin_api::PluginRuntime::DynamicLibrary
             || entry.info.effective_trust != PluginTrust::TrustedLocal
             || entry.plugin.is_some()
             || entry.external.is_some()
@@ -335,8 +335,8 @@ impl PluginManager {
             .map(|info| {
                 matches!(
                     info.runtime,
-                    agile_tiles_plugin_api::PluginRuntime::DynamicLibrary
-                        | agile_tiles_plugin_api::PluginRuntime::ExternalProcess
+                    sideweave_plugin_api::PluginRuntime::DynamicLibrary
+                        | sideweave_plugin_api::PluginRuntime::ExternalProcess
                 )
             })
             .unwrap_or(false);
@@ -361,7 +361,7 @@ impl PluginManager {
             .registry
             .get(id)
             .is_some_and(|info| {
-                info.runtime == agile_tiles_plugin_api::PluginRuntime::ExternalProcess
+                info.runtime == sideweave_plugin_api::PluginRuntime::ExternalProcess
             })
         {
             self.registry
@@ -384,8 +384,8 @@ impl PluginManager {
             .filter(|info| {
                 matches!(
                     info.runtime,
-                    agile_tiles_plugin_api::PluginRuntime::DynamicLibrary
-                        | agile_tiles_plugin_api::PluginRuntime::ExternalProcess
+                    sideweave_plugin_api::PluginRuntime::DynamicLibrary
+                        | sideweave_plugin_api::PluginRuntime::ExternalProcess
                 ) && info.source.starts_with("installed-")
             })
             .map(|info| info.manifest.id)
@@ -463,7 +463,7 @@ impl PluginManager {
         };
         if response.request_id != request.request_id || response.plugin_id != request.plugin_id {
             return Err(RuntimeError::Protocol(
-                agile_tiles_plugin_api::ProtocolError::InvalidRequest(
+                sideweave_plugin_api::ProtocolError::InvalidRequest(
                     "plugin response does not match request".into(),
                 ),
             ));
@@ -521,7 +521,7 @@ impl PluginManager {
 
 #[derive(Debug, Clone)]
 pub enum RuntimeError {
-    Protocol(agile_tiles_plugin_api::ProtocolError),
+    Protocol(sideweave_plugin_api::ProtocolError),
     AlreadyRegistered(PluginId),
     NotFound(PluginId),
     Unavailable(PluginId),
@@ -534,10 +534,10 @@ impl RuntimeError {
         match self {
             Self::Protocol(error) => PluginError {
                 code: match error {
-                    agile_tiles_plugin_api::ProtocolError::InvalidRequest(_) => {
+                    sideweave_plugin_api::ProtocolError::InvalidRequest(_) => {
                         ErrorCode::InvalidRequest
                     }
-                    agile_tiles_plugin_api::ProtocolError::UnsupportedApiVersion(_) => {
+                    sideweave_plugin_api::ProtocolError::UnsupportedApiVersion(_) => {
                         ErrorCode::UnsupportedApiVersion
                     }
                     _ => ErrorCode::InvalidManifest,
@@ -568,10 +568,10 @@ impl RuntimeError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agile_tiles_plugin_api::{
+    use sideweave_plugin_api::{
         PluginHandshake, PluginManifest, PluginRuntime, PluginUi, API_VERSION, MANIFEST_VERSION,
     };
-    use agile_tiles_plugin_sdk::{
+    use sideweave_plugin_sdk::{
         ClipboardService, EventBus, FileService, GlobalShortcutService, HostError, HostServices,
         NotificationService, ShortcutAction, ShortcutHandler, StorageService, SystemService,
         WindowService,
@@ -679,8 +679,8 @@ mod tests {
     impl WindowService for TestServices {
         fn create(
             &self,
-            _spec: agile_tiles_plugin_sdk::WindowSpec,
-            _handler: Option<std::sync::Arc<dyn agile_tiles_plugin_sdk::WindowEventHandler>>,
+            _spec: sideweave_plugin_sdk::WindowSpec,
+            _handler: Option<std::sync::Arc<dyn sideweave_plugin_sdk::WindowEventHandler>>,
         ) -> Result<(), HostError> {
             Ok(())
         }
@@ -774,7 +774,7 @@ mod tests {
                 author: String::new(),
                 runtime: PluginRuntime::InProcess,
                 backend: None,
-                trust: agile_tiles_plugin_api::PluginTrust::Sandboxed,
+                trust: sideweave_plugin_api::PluginTrust::Sandboxed,
                 auto_start: false,
                 permissions: vec![],
                 ui: Some(PluginUi {
@@ -878,7 +878,7 @@ mod tests {
         let library = repository
             .join("target")
             .join("debug")
-            .join("agile_tiles_plugin_bookmarks.dll");
+            .join("sideweave_plugin_bookmarks.dll");
         assert!(library.is_file(), "build the bookmarks DLL before this test");
         let id = PluginId::new("bookmarks").unwrap();
         let manifest = PluginManifest {

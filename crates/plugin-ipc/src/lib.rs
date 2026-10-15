@@ -3,7 +3,7 @@
 //! The transport is deliberately independent from Windows Named Pipe handles. The host and
 //! plugin process can use the same codec over a pipe, while tests can use an in-memory stream.
 
-use agile_tiles_plugin_api::{PluginWireMessage, ProtocolError, MAX_MESSAGE_BYTES};
+use sideweave_plugin_api::{PluginWireMessage, ProtocolError, MAX_MESSAGE_BYTES};
 use std::io::{self, Read, Write};
 
 pub const FRAME_HEADER_BYTES: usize = 4;
@@ -91,7 +91,7 @@ impl From<io::Error> for IpcError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agile_tiles_plugin_api::{PluginHandshake, PluginId, API_VERSION};
+    use sideweave_plugin_api::{PluginHandshake, PluginId, API_VERSION};
     use std::io::Cursor;
 
     #[test]

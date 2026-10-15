@@ -19,12 +19,14 @@ my-plugin/
 
 ## 本地开发
 
-复制 `tools/plugin-template` 到 `plugins/<id>`，替换示例 ID，然后加入根 workspace。后端只依赖 `agile-tiles-plugin-api` 和 `agile-tiles-plugin-sdk`，通过 `PluginContext` 使用存储、文件、窗口和系统能力。
+官方插件源码位于旁边的 `SideWeave-Plugins` 仓库。第三方 Web 与 Native 插件模板都在 `suzikuo/SideWeave-plugin-template`：Web 模板位于仓库根目录，独立 Native DLL 模板位于 `native/`。Native starter 自带 Cargo 工程、DLL/资源打包脚本和本地签名发布脚本；官方仓库中的 `plugins/native-template` 仍是官方 workspace 示例。
+
+Rust 插件依赖 `sideweave-plugin-api` 提供协议类型，依赖 `sideweave-plugin-sdk` 提供宿主能力；external-process 插件再依赖 `sideweave-plugin-ipc`。这几个 crate 应使用同一个经审核的 SideWeave Git revision，并提交 `Cargo.lock` 固定该 revision。插件业务代码不要依赖 `src-tauri`、宿主 runtime crate 或 Tauri `AppHandle`。
 
 ```powershell
-cargo test -p agile-tiles-plugin-demo --features agile-tiles-plugin-sdk/mock
-npm run typecheck
-npm run build
+cd ..\SideWeave-Plugins
+npm ci
+npm run build:plugins
 ```
 
 插件 UI 使用独立 Vite 入口。manifest 的 `ui.entry` 必须指向构建后的详情页，资源路径必须位于插件自己的资源根目录内。
@@ -49,7 +51,7 @@ onUnmounted(stopLifecycleListener)
 插件 UI 作为顶层页面独立运行时，SDK 会跟随页面可见性；嵌入详情页时以宿主发送的状态为准。
 纯 HTML 插件可监听 `message`，只接受 `event.source === window.parent`、`__agileTiles === true`、`type === 'lifecycle'` 且 `plugin_id` 匹配的消息，并按 `active` 字段暂停或恢复。
 
-workspace 内官方插件的 DLL 和 UI 构建产物由 `scripts/build-plugin-packages.ps1` 放入 `market/plugins/<id>-<version>.zip`；详情窗口外壳属于宿主，详情页 HTML、Vue/React 代码、CSS 和资源属于插件。
+官方插件 monorepo 的每个 `plugins/<id>/manifest.json` 是包元数据的来源。`tools/build-plugin-packages.ps1` 从 manifest 和 Cargo target 构建独立 ZIP，产物保存在 `SideWeave-Plugins/dist/packages/`。通过插件中心的本地 ZIP 导入入口安装开发包；不要直接复制 DLL 或为开发包写入 `.trusted-local`。详情窗口外壳属于宿主，详情页 HTML、Vue/React 代码、CSS 和资源属于插件。
 
 ## UI 状态与 `plugin_call` 边界
 
@@ -71,7 +73,7 @@ iframe 内不涉及外部副作用的操作应完全由插件前端处理，不�
 
 ## 独立 DLL 插件包
 
-可信本地 Windows 插件默认使用 `dynamic_library` runtime。宿主启动时遍历 `%APPDATA%/com.agiletiles.app/user_plugins/<id>`，校验 `.trusted-local`、manifest 和 `plugin.dll` 后，在主进程内加载 DLL。DLL 必须通过 SDK 导出的 `agile_tiles_plugin_entry` 入口，不要跨 DLL 传递 Rust trait 对象或 Tauri 类型。
+可信本地 Windows 插件默认使用 `dynamic_library` runtime。宿主启动时遍历 `%APPDATA%/com.agiletiles.app/user_plugins/<id>`，校验 `.trusted-local`、manifest 和 `plugin.dll` 后，在主进程内加载 DLL。DLL 必须通过 SDK 导出的 `sideweave_plugin_entry` 入口，不要跨 DLL 传递 Rust trait 对象或 Tauri 类型。
 
 ```text
 my-plugin/
@@ -107,14 +109,13 @@ my-plugin/
 }
 ```
 
-模板或 workspace 官方插件的构建与本地安装：
+构建官方插件包：
 
 ```powershell
-npm run build:plugins
-npm run plugin:dev-install
+npm --prefix ..\SideWeave-Plugins run build:plugins
 ```
 
-更新只修改同一插件 ID 的版本，插件中心会覆盖 `user_plugins/<id>`，而私有数据保存在 `plugin-data/<id>`。
+更新时沿用同一插件 ID 并递增版本。插件中心会替换 `user_plugins/<id>` 中的包文件，私有数据保存在 `plugin-data/<id>`。
 
 ## 独立外部插件包
 
@@ -156,7 +157,7 @@ my-plugin/
 
 宿主会校验 `backend` 和 `ui.entry` 必须是包内相对路径，外部进程以插件包目录为工作目录启动，详情页资源通过 `agile-plugin://` 加载。UI 构建工具需要使用相对资源路径（例如 Vite 的 `base: './'`），不能依赖宿主的 `/assets` 根路径。可信插件可以在自己的进程中使用 Windows API，但仍通过 SDK/RPC 入口与宿主交互。
 
-zip 根目录必须直接包含 `manifest.json`、`backend/...` 和 `ui/...`，不要再包一层仓库目录。宿主启动 backend 时会传入 `--pipe <named-pipe>` 和 `--plugin-id <id>`；进程先用 `plugin-ipc` 读取 `PluginWireMessage::Handshake`，回复握手后处理 `PluginRequest`。`plugins/ssh-process` 可作为外部进程适配器示例。
+zip 根目录必须直接包含 `manifest.json`、`backend/...` 和 `ui/...`，不要再包一层仓库目录。宿主启动 backend 时会传入 `--pipe <named-pipe>` 和 `--plugin-id <id>`；进程先用 `plugin-ipc` 读取 `PluginWireMessage::Handshake`，回复握手后处理 `PluginRequest`。`SideWeave-Plugins/plugins/ssh-process` 可作为外部进程适配器示例。
 
 本地导入成功后，插件放在 `%APPDATA%/com.agiletiles.app/user_plugins/<id>`；重启宿主会自动发现并启动已授信的 external 包，不需要修改侧边栏主项目。
 
@@ -164,7 +165,7 @@ zip 根目录必须直接包含 `manifest.json`、`backend/...` 和 `ui/...`，�
 
 ## 权限声明
 
-插件需要在 `manifest.json.capabilities` 声明自己会用到的宿主能力。宿主只允许以下清单中的权限名；清单的代码权威来源是 `agile-tiles-plugin-api::permissions`，包括各权限常量和 `permissions::ALL`。Rust 插件可直接引用这些常量，避免手写字符串。
+插件需要在 `manifest.json.capabilities` 声明自己会用到的宿主能力。宿主只允许以下清单中的权限名；清单的代码权威来源是 `sideweave-plugin-api::permissions`，包括各权限常量和 `permissions::ALL`。Rust 插件可直接引用这些常量，避免手写字符串。
 
 | 权限名 | 用途 |
 | --- | --- |
@@ -192,7 +193,7 @@ zip 根目录必须直接包含 `manifest.json`、`backend/...` 和 `ui/...`，�
 例如 Rust 插件可以这样声明：
 
 ```rust
-use agile_tiles_plugin_api::permissions;
+use sideweave_plugin_api::permissions;
 
 let requested = vec![
     permissions::STORAGE.into(),
@@ -228,21 +229,23 @@ npm run tauri dev
 Cloudflare Tunnel 是新的 `dynamic_library` 官方插件，直接管理 `cloudflared` 子进程，不需要 Gateway sidecar：
 
 ```powershell
-npm run plugin:dev-install -- -PluginId cloudflare_tunnel
+cd ..\SideWeave-Plugins
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/build-plugin-packages.ps1 -PluginId cloudflare_tunnel
 ```
 
-重启 SideWeave 后，在插件中心打开 Cloudflare Tunnel；插件可以选择 Dashboard Token 模式，或选择 credentials JSON 并维护本地 `config.yaml` 的 ingress 规则。
+将生成的 ZIP 通过插件中心本地导入并授信，然后在插件中心打开 Cloudflare Tunnel；插件可以选择 Dashboard Token 模式，或选择 credentials JSON 并维护本地 `config.yaml` 的 ingress 规则。
 
 ## 脱离 Tauri 测试
 
 SDK 提供可选的 `mock` feature：
 
 ```toml
-agile-tiles-plugin-sdk = { version = "0.1", features = ["mock"] }
+sideweave-plugin-api = { git = "https://github.com/suzikuo/SideWeave.git", rev = "<reviewed-sdk-revision>" }
+sideweave-plugin-sdk = { git = "https://github.com/suzikuo/SideWeave.git", rev = "<reviewed-sdk-revision>", features = ["mock"] }
 ```
 
 测试中用 `MockHostServices` 创建 `PluginContext`，不需要启动 Tauri。插件协议还提供 `PluginWireMessage::encode/decode`，外部进程可以直接使用大小受限的 JSON frame。
 
 ## 独立仓库
 
-当前 workspace 使用 path dependency，便于同步开发。SDK 仓库边界、官方插件仓库命名、版本和发布物约定见 `docs/PLUGIN_REPOSITORY.md`。拆到独立仓库时，将 API/SDK 的 path dependency 替换为固定 Git tag 或发布版本，并将 backend、`manifest.json` 和 UI 构建产物一起打包；插件业务代码不应依赖主项目 `src-tauri` 或内部模块。`tools/plugin-template/ui` 已是独立 Vite 工程，不依赖宿主的 `src` 路径。
+官方插件源码、UI SDK 和包构建工具位于 `suzikuo/SideWeave-Plugins`。API、Rust SDK、IPC 协议和宿主 runtime 保留在 SideWeave；Rust 插件依赖同一经审查 revision 的 `sideweave-plugin-api` 与 `sideweave-plugin-sdk`，由 `Cargo.lock` 固定。发布包包含 backend、根目录 `manifest.json` 和完整 UI 资源，并登记到 SideWeave-Marketplace。仓库职责和 tag 约定见 `docs/PLUGIN_REPOSITORY.md`。

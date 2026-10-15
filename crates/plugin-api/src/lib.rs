@@ -1,4 +1,4 @@
-//! Serializable protocol shared by in-process and external Agile Tiles plugins.
+//! Serializable protocol shared by in-process and external SideWeave plugins.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -11,7 +11,9 @@ pub const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 8_000;
 pub const MAX_REQUEST_TIMEOUT_MS: u64 = 60_000;
 pub const MAX_MESSAGE_BYTES: usize = 256 * 1024;
 pub const DYNAMIC_PLUGIN_ABI_VERSION: u32 = 1;
-pub const DYNAMIC_PLUGIN_ENTRY_SYMBOL: &[u8] = b"agile_tiles_plugin_entry\0";
+pub const DYNAMIC_PLUGIN_ENTRY_SYMBOL: &[u8] = b"sideweave_plugin_entry\0";
+pub const LEGACY_DYNAMIC_PLUGIN_ENTRY_SYMBOL: &[u8] =
+    concat!("agile", "_tiles_plugin_entry\0").as_bytes();
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]

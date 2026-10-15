@@ -1,9 +1,11 @@
 //! In-process adapter API. The request/response types remain the wire contract.
 
-use agile_tiles_plugin_api::{
+use sideweave_plugin_api::{
     PluginEvent, PluginInfo, PluginManifest, PluginRequest, PluginRequestKind, PluginResponse,
     PluginTrust,
 };
+
+pub use sideweave_plugin_api as plugin_api;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
@@ -22,18 +24,18 @@ pub trait Plugin: Send {
 pub trait StorageService: Send + Sync {
     fn get(
         &self,
-        plugin_id: &agile_tiles_plugin_api::PluginId,
+        plugin_id: &sideweave_plugin_api::PluginId,
         key: &str,
     ) -> Result<Option<String>, HostError>;
     fn set(
         &self,
-        plugin_id: &agile_tiles_plugin_api::PluginId,
+        plugin_id: &sideweave_plugin_api::PluginId,
         key: &str,
         value: &str,
     ) -> Result<(), HostError>;
     fn remove(
         &self,
-        plugin_id: &agile_tiles_plugin_api::PluginId,
+        plugin_id: &sideweave_plugin_api::PluginId,
         key: &str,
     ) -> Result<(), HostError>;
 }
@@ -45,18 +47,18 @@ pub trait StorageService: Send + Sync {
 pub trait SecretService: Send + Sync {
     fn get(
         &self,
-        plugin_id: &agile_tiles_plugin_api::PluginId,
+        plugin_id: &sideweave_plugin_api::PluginId,
         key: &str,
     ) -> Result<Option<String>, HostError>;
     fn set(
         &self,
-        plugin_id: &agile_tiles_plugin_api::PluginId,
+        plugin_id: &sideweave_plugin_api::PluginId,
         key: &str,
         value: &str,
     ) -> Result<(), HostError>;
     fn remove(
         &self,
-        plugin_id: &agile_tiles_plugin_api::PluginId,
+        plugin_id: &sideweave_plugin_api::PluginId,
         key: &str,
     ) -> Result<(), HostError>;
 }
@@ -66,7 +68,7 @@ struct UnsupportedSecretService;
 impl SecretService for UnsupportedSecretService {
     fn get(
         &self,
-        _plugin_id: &agile_tiles_plugin_api::PluginId,
+        _plugin_id: &sideweave_plugin_api::PluginId,
         _key: &str,
     ) -> Result<Option<String>, HostError> {
         Err(HostError::new("secret storage is not supported by this plugin runtime"))
@@ -74,7 +76,7 @@ impl SecretService for UnsupportedSecretService {
 
     fn set(
         &self,
-        _plugin_id: &agile_tiles_plugin_api::PluginId,
+        _plugin_id: &sideweave_plugin_api::PluginId,
         _key: &str,
         _value: &str,
     ) -> Result<(), HostError> {
@@ -83,7 +85,7 @@ impl SecretService for UnsupportedSecretService {
 
     fn remove(
         &self,
-        _plugin_id: &agile_tiles_plugin_api::PluginId,
+        _plugin_id: &sideweave_plugin_api::PluginId,
         _key: &str,
     ) -> Result<(), HostError> {
         Err(HostError::new("secret storage is not supported by this plugin runtime"))
@@ -195,7 +197,7 @@ pub trait NotificationService: Send + Sync {
     /// Shows a desktop notification on behalf of a plugin so the host can use its icon.
     fn show_desktop_for_plugin(
         &self,
-        _plugin_id: &agile_tiles_plugin_api::PluginId,
+        _plugin_id: &sideweave_plugin_api::PluginId,
         notification: &DesktopNotificationOptions,
     ) -> Result<(), HostError> {
         self.show_desktop(notification)
@@ -209,7 +211,7 @@ pub trait NotificationService: Send + Sync {
     /// Shows a sidebar notification on behalf of a plugin so the host can use its icon.
     fn show_sidebar_for_plugin(
         &self,
-        _plugin_id: &agile_tiles_plugin_api::PluginId,
+        _plugin_id: &sideweave_plugin_api::PluginId,
         notification: &DesktopNotificationOptions,
     ) -> Result<(), HostError> {
         self.show_sidebar(notification)
@@ -217,7 +219,7 @@ pub trait NotificationService: Send + Sync {
 }
 
 struct ContextNotificationService {
-    plugin_id: agile_tiles_plugin_api::PluginId,
+    plugin_id: sideweave_plugin_api::PluginId,
     services: Arc<dyn HostServices>,
 }
 
@@ -244,7 +246,7 @@ impl NotificationService for ContextNotificationService {
 
     fn show_desktop_for_plugin(
         &self,
-        plugin_id: &agile_tiles_plugin_api::PluginId,
+        plugin_id: &sideweave_plugin_api::PluginId,
         notification: &DesktopNotificationOptions,
     ) -> Result<(), HostError> {
         self.services
@@ -254,7 +256,7 @@ impl NotificationService for ContextNotificationService {
 
     fn show_sidebar_for_plugin(
         &self,
-        plugin_id: &agile_tiles_plugin_api::PluginId,
+        plugin_id: &sideweave_plugin_api::PluginId,
         notification: &DesktopNotificationOptions,
     ) -> Result<(), HostError> {
         self.services
@@ -289,18 +291,18 @@ pub trait SystemService: Send + Sync {
 pub trait FileService: Send + Sync {
     fn read_private(
         &self,
-        plugin_id: &agile_tiles_plugin_api::PluginId,
+        plugin_id: &sideweave_plugin_api::PluginId,
         relative_path: &str,
     ) -> Result<Option<Vec<u8>>, HostError>;
     fn write_private(
         &self,
-        plugin_id: &agile_tiles_plugin_api::PluginId,
+        plugin_id: &sideweave_plugin_api::PluginId,
         relative_path: &str,
         bytes: &[u8],
     ) -> Result<(), HostError>;
     fn remove_private(
         &self,
-        plugin_id: &agile_tiles_plugin_api::PluginId,
+        plugin_id: &sideweave_plugin_api::PluginId,
         relative_path: &str,
     ) -> Result<(), HostError>;
     fn read_external(&self, path: &str) -> Result<Vec<u8>, HostError>;
@@ -319,7 +321,7 @@ pub trait FileService: Send + Sync {
     }
     fn private_path(
         &self,
-        plugin_id: &agile_tiles_plugin_api::PluginId,
+        plugin_id: &sideweave_plugin_api::PluginId,
         relative_path: &str,
     ) -> Result<String, HostError> {
         let _ = (plugin_id, relative_path);
@@ -347,11 +349,11 @@ pub type ShortcutHandler = Arc<dyn Fn(ShortcutAction) + Send + Sync>;
 pub trait GlobalShortcutService: Send + Sync {
     fn register(
         &self,
-        plugin_id: &agile_tiles_plugin_api::PluginId,
+        plugin_id: &sideweave_plugin_api::PluginId,
         bindings: &[(String, ShortcutAction)],
         handler: ShortcutHandler,
     ) -> Result<(), HostError>;
-    fn unregister(&self, plugin_id: &agile_tiles_plugin_api::PluginId) -> Result<(), HostError>;
+    fn unregister(&self, plugin_id: &sideweave_plugin_api::PluginId) -> Result<(), HostError>;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -414,7 +416,7 @@ pub trait WindowService: Send + Sync {
     }
     fn close_plugin_windows(
         &self,
-        plugin_id: &agile_tiles_plugin_api::PluginId,
+        plugin_id: &sideweave_plugin_api::PluginId,
     ) -> Result<(), HostError> {
         let _ = plugin_id;
         Ok(())
@@ -426,7 +428,7 @@ pub trait HostServices: Send + Sync {
     /// Non-Tauri hosts may keep the compatibility default and allow requests.
     fn permission_granted(
         &self,
-        _plugin_id: &agile_tiles_plugin_api::PluginId,
+        _plugin_id: &sideweave_plugin_api::PluginId,
         _permission: &str,
     ) -> Result<bool, HostError> {
         Ok(true)
@@ -445,14 +447,14 @@ pub trait HostServices: Send + Sync {
 }
 
 pub struct PluginContext {
-    plugin_id: agile_tiles_plugin_api::PluginId,
+    plugin_id: sideweave_plugin_api::PluginId,
     services: Arc<dyn HostServices>,
     notification_service: ContextNotificationService,
 }
 
 impl PluginContext {
     pub fn new(
-        plugin_id: agile_tiles_plugin_api::PluginId,
+        plugin_id: sideweave_plugin_api::PluginId,
         services: Arc<dyn HostServices>,
     ) -> Self {
         let notification_service = ContextNotificationService {
@@ -466,7 +468,7 @@ impl PluginContext {
         }
     }
 
-    pub fn plugin_id(&self) -> &agile_tiles_plugin_api::PluginId {
+    pub fn plugin_id(&self) -> &sideweave_plugin_api::PluginId {
         &self.plugin_id
     }
 
@@ -516,7 +518,7 @@ impl PluginContext {
 }
 
 pub fn lifecycle_request(
-    plugin_id: agile_tiles_plugin_api::PluginId,
+    plugin_id: sideweave_plugin_api::PluginId,
     kind: PluginRequestKind,
 ) -> PluginRequest {
     PluginRequest {
@@ -542,8 +544,8 @@ pub fn success_response(request: &PluginRequest, result: Value) -> PluginRespons
 pub fn plugin_info(plugin: &dyn Plugin) -> PluginInfo {
     PluginInfo {
         manifest: plugin.manifest().clone(),
-        status: agile_tiles_plugin_api::PluginStatus::Loaded,
-        runtime: agile_tiles_plugin_api::PluginRuntime::InProcess,
+        status: sideweave_plugin_api::PluginStatus::Loaded,
+        runtime: sideweave_plugin_api::PluginRuntime::InProcess,
         location: "in-process".into(),
         source: "workspace".into(),
         effective_trust: PluginTrust::Sandboxed,

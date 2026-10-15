@@ -27,6 +27,7 @@ export interface GeneralSettings {
   auto_hide_delay: number
   hover_preview_delay: number
   performance_profile?: PerformanceProfile
+  github_mirror?: string
 }
 
 export type SkinId = 'default' | `user:${string}`

@@ -9,7 +9,7 @@ use crate::{
     ShortcutAction, ShortcutHandler, StorageService,
     SystemService, WindowEvent, WindowEventHandler, WindowService, WindowSpec,
 };
-use agile_tiles_plugin_api::{
+use sideweave_plugin_api::{
     PluginBuffer, PluginDylibApi, PluginEvent, PluginHostApi, PluginId,
     PluginRequest, PluginResponse, DYNAMIC_PLUGIN_ABI_VERSION,
 };
@@ -615,8 +615,8 @@ where
         plugin_id: context.plugin_id().clone(),
         ok: false,
         result: Value::Null,
-        error: Some(agile_tiles_plugin_api::PluginError {
-            code: agile_tiles_plugin_api::ErrorCode::Internal,
+        error: Some(sideweave_plugin_api::PluginError {
+            code: sideweave_plugin_api::ErrorCode::Internal,
             message: "plugin panicked while handling request".into(),
         }),
     });
@@ -702,10 +702,19 @@ unsafe fn take_buffer(
 macro_rules! export_plugin_dylib {
     ($plugin:ty) => {
         #[no_mangle]
-        pub unsafe extern "C" fn agile_tiles_plugin_entry()
-            -> *const agile_tiles_plugin_api::PluginDylibApi
+        pub unsafe extern "C" fn sideweave_plugin_entry()
+            -> *const $crate::plugin_api::PluginDylibApi
         {
-            agile_tiles_plugin_sdk::dylib::entry::<$plugin>()
+            $crate::dylib::entry::<$plugin>()
+        }
+
+        // Keep the previous ABI symbol available so plugins built with this SDK
+        // still load in SideWeave versions that have not adopted the new name.
+        #[export_name = concat!("agile", "_tiles_plugin_entry")]
+        pub unsafe extern "C" fn sideweave_legacy_plugin_entry()
+            -> *const $crate::plugin_api::PluginDylibApi
+        {
+            $crate::dylib::entry::<$plugin>()
         }
     };
 }

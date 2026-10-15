@@ -1,7 +1,7 @@
 //! Tauri-backed Host API services for the extension runtime.
 
-use agile_tiles_plugin_api::{PluginEvent, PluginId};
-use agile_tiles_plugin_sdk::{
+use sideweave_plugin_api::{PluginEvent, PluginId};
+use sideweave_plugin_sdk::{
     ClipboardService, DesktopNotificationOptions, EventBus, FileService, GlobalShortcutService,
     HostError, HostServices, NotificationOptions, NotificationService, SecretService,
     ShortcutAction, ShortcutHandler, StorageService, SystemService,
@@ -871,7 +871,7 @@ impl WindowService for TauriHostServices {
                         &queued_native_windows,
                     ) {
                         eprintln!(
-                            "[agile-tiles] failed to create plugin window '{}': {}",
+                            "[sideweave_] failed to create plugin window '{}': {}",
                             window_id, error.message
                         );
                         queued_slot.detach();
@@ -886,7 +886,7 @@ impl WindowService for TauriHostServices {
                     }
                 }) {
                     eprintln!(
-                        "[agile-tiles] failed to queue plugin window '{}': {error}",
+                        "[sideweave_] failed to queue plugin window '{}': {error}",
                         queue_window_id
                     );
                     binding_slot.detach();

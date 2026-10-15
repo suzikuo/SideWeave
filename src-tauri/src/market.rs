@@ -9,8 +9,9 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
+use url::Url;
 
-use agile_tiles_plugin_api::{
+use sideweave_plugin_api::{
     ErrorCode, PluginError, PluginId, PluginManifest, PluginRequest, PluginRequestKind,
     PluginResponse, PluginRuntime, PluginTrust, API_VERSION, MANIFEST_VERSION,
 };
@@ -144,11 +145,32 @@ struct TrustedPublisherKey {
 }
 
 const MARKETPLACE_SCHEMA_VERSION: u32 = 1;
-const MARKETPLACE_URL: &str = "https://raw.githubusercontent.com/suzikuo/sideweave-marketplace/main/marketplace.json";
-const PUBLISHERS_URL: &str = "https://raw.githubusercontent.com/suzikuo/sideweave-marketplace/main/publishers.json";
+const MARKETPLACE_URL: &str = "https://raw.githubusercontent.com/suzikuo/SideWeave-Marketplace/master/marketplace.json";
+const PUBLISHERS_URL: &str = "https://raw.githubusercontent.com/suzikuo/SideWeave-Marketplace/master/publishers.json";
 const OFFICIAL_PUBLISHER_ID: &str = "sideweave";
 // This key is compiled into the application through the Actions variable and is never read from the marketplace.
 const OFFICIAL_PUBLISHER_PUBLIC_KEY: Option<&str> = option_env!("SIDEWEAVE_OFFICIAL_PUBLISHER_KEY");
+
+/// Apply the selected GitHub proxy prefix only to GitHub-hosted URLs. The catalog continues to
+/// provide the canonical, exact asset URL; this only changes its transport endpoint.
+pub(crate) fn mirrored_github_url(mirror_prefix: &str, source_url: &str) -> Result<String, String> {
+    let mirror_prefix = crate::settings::validate_github_mirror(mirror_prefix)?;
+    let source = Url::parse(source_url).map_err(|error| format!("GitHub URL 无效: {error}"))?;
+    let Some(host) = source.host_str() else {
+        return Err("GitHub URL 缺少主机名".into());
+    };
+    let is_github = host.eq_ignore_ascii_case("github.com")
+        || host.eq_ignore_ascii_case("githubusercontent.com")
+        || host.to_ascii_lowercase().ends_with(".githubusercontent.com");
+    if mirror_prefix.is_empty() || !is_github {
+        return Ok(source_url.to_string());
+    }
+    let source_without_scheme = source_url
+        .split_once("://")
+        .map(|(_, remainder)| remainder)
+        .ok_or_else(|| "GitHub URL 缺少协议头".to_string())?;
+    Ok(format!("{mirror_prefix}{source_without_scheme}"))
+}
 
 // ---------- 已安装清单 ----------
 
@@ -175,7 +197,7 @@ pub struct Manifest {
     pub entry: String,
     /// Plugin-owned detail page metadata. `entry` remains as a legacy fallback.
     #[serde(default)]
-    pub ui: Option<agile_tiles_plugin_api::PluginUi>,
+    pub ui: Option<sideweave_plugin_api::PluginUi>,
     /// Optional full-window UI replacements for a skin package.
     #[serde(default, rename = "skinUi")]
     pub skin_ui: Option<SkinUi>,
@@ -202,7 +224,7 @@ pub struct Manifest {
     #[serde(default)]
     pub requires_trust: bool,
     #[serde(default, alias = "hoverPreview")]
-    pub hover_preview: Option<agile_tiles_plugin_api::PluginHoverPreview>,
+    pub hover_preview: Option<sideweave_plugin_api::PluginHoverPreview>,
     #[serde(default)]
     pub minimum_host_version: Option<String>,
 }
@@ -302,59 +324,6 @@ fn user_plugins_dir(app_data: &Path) -> PathBuf {
 }
 fn user_skins_dir(app_data: &Path) -> PathBuf {
     app_data.join("user_skins")
-}
-
-/// Seed the extracted Pixel package for users upgrading from the former built-in skin.
-/// The source files remain the standalone package under dev/skins/minecraft; this only copies
-/// that package into the normal user skin directory when the migrated setting is still selected.
-pub fn ensure_pixel_skin_package(app_data: &Path) -> Result<(), String> {
-    let base = user_skins_dir(app_data);
-    let dest = base.join("minecraft");
-    if dest.join("manifest.json").is_file() && dest.join("skin.css").is_file() {
-        return Ok(());
-    }
-    if dest.exists() {
-        return Err("Existing minecraft skin folder is incomplete; leaving it untouched".into());
-    }
-
-    std::fs::create_dir_all(base.join(".import-minecraft-migration/assets"))
-        .map_err(|error| error.to_string())?;
-    let tmp = base.join(".import-minecraft-migration");
-    let files: &[(&str, &[u8])] = &[
-        (
-            "manifest.json",
-            include_bytes!("../../dev/skins/minecraft/manifest.json"),
-        ),
-        (
-            "skin.css",
-            include_bytes!("../../dev/skins/minecraft/skin.css"),
-        ),
-        (
-            "assets/minecraft_bg.jpg",
-            include_bytes!("../../dev/skins/minecraft/assets/minecraft_bg.jpg"),
-        ),
-    ];
-    for (relative, bytes) in files {
-        let path = tmp.join(relative);
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-        }
-        std::fs::write(path, bytes).map_err(|error| error.to_string())?;
-    }
-    let Some(manifest) = read_manifest(&tmp) else {
-        let _ = std::fs::remove_dir_all(&tmp);
-        return Err("Bundled Pixel skin package has an invalid manifest".into());
-    };
-    if manifest.id != "minecraft" || !tmp.join("skin.css").is_file() {
-        let _ = std::fs::remove_dir_all(&tmp);
-        return Err("Bundled Pixel skin package failed validation".into());
-    }
-    std::fs::create_dir_all(&base).map_err(|error| error.to_string())?;
-    if std::fs::rename(&tmp, &dest).is_err() {
-        copy_dir_all(&tmp, &dest)?;
-        let _ = std::fs::remove_dir_all(&tmp);
-    }
-    Ok(())
 }
 
 fn is_staging_dir(path: &Path) -> bool {
@@ -655,9 +624,11 @@ pub fn market_snapshot<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<MarketIn
 async fn fetch_document(
     client: &reqwest::Client,
     url: &str,
+    mirror_prefix: &str,
     etag: Option<&str>,
 ) -> Result<(Option<Vec<u8>>, Option<String>), String> {
-    let mut request = client.get(url);
+    let request_url = mirrored_github_url(mirror_prefix, url)?;
+    let mut request = client.get(request_url);
     if let Some(etag) = etag {
         request = request.header(reqwest::header::IF_NONE_MATCH, etag);
     }
@@ -679,6 +650,7 @@ async fn fetch_document(
 
 pub async fn refresh_market_cache<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<MarketIndex, String> {
     let previous = load_market_cache(app);
+    let mirror_prefix = crate::host_settings(app).general.github_mirror;
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(20))
         .user_agent(concat!("SideWeave/", env!("CARGO_PKG_VERSION")))
@@ -687,12 +659,14 @@ pub async fn refresh_market_cache<R: Runtime>(app: &tauri::AppHandle<R>) -> Resu
     let (marketplace_bytes, marketplace_etag) = fetch_document(
         &client,
         MARKETPLACE_URL,
+        &mirror_prefix,
         previous.as_ref().and_then(|cache| cache.marketplace_etag.as_deref()),
     )
     .await?;
     let (publishers_bytes, publishers_etag) = fetch_document(
         &client,
         PUBLISHERS_URL,
+        &mirror_prefix,
         previous.as_ref().and_then(|cache| cache.publishers_etag.as_deref()),
     )
     .await?;
@@ -913,8 +887,7 @@ fn resolve_install_info<R: Runtime>(
         .map(|publisher| publisher.name.clone())
         .unwrap_or_else(|| item.publisher.clone());
     let native = kind == "plugin" && item.package_type == "native";
-    let official = item.publisher == OFFICIAL_PUBLISHER_ID;
-    let trust_required = native && !official
+    let trust_required = native
         && !trusted_key(app, &item.publisher, &key.id, &fingerprint);
     Ok(MarketInstallInfo {
         id: item.id.clone(),
@@ -942,11 +915,20 @@ pub fn install_info<R: Runtime>(
     resolve_install_info(app, &cache.marketplace, &cache.publishers, kind, id)
 }
 
-async fn get_asset(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, String> {
+async fn get_asset<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    client: &reqwest::Client,
+    url: &str,
+) -> Result<Vec<u8>, String> {
     if !is_https_url(url) {
         return Err("市场资产 URL 必须使用 HTTPS".into());
     }
-    client.get(url).send().await
+    let mirror_prefix = crate::host_settings(app).general.github_mirror;
+    let download_url = mirrored_github_url(&mirror_prefix, url)?;
+    if !is_https_url(&download_url) {
+        return Err("镜像 URL 必须使用 HTTPS".into());
+    }
+    client.get(download_url).send().await
         .map_err(|error| format!("下载市场资产失败: {error}"))?
         .error_for_status()
         .map_err(|error| format!("下载市场资产失败: {error}"))?
@@ -1049,9 +1031,9 @@ pub async fn install<R: Runtime>(
         .user_agent(concat!("SideWeave/", env!("CARGO_PKG_VERSION")))
         .build().map_err(|error| error.to_string())?;
     let release = &version.release;
-    let zip = get_asset(&client, &release.url).await?;
-    let signature = get_asset(&client, &release.signature_url).await?;
-    let checksum = get_asset(&client, &release.checksum_url).await?;
+    let zip = get_asset(app, &client, &release.url).await?;
+    let signature = get_asset(app, &client, &release.signature_url).await?;
+    let checksum = get_asset(app, &client, &release.checksum_url).await?;
     let expected = parse_checksum(&checksum)?;
     let digest = sha2::Sha256::digest(&zip);
     let actual: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
@@ -1080,7 +1062,7 @@ pub async fn install<R: Runtime>(
         return Err("native 插件 manifest 必须声明 requires_trust: true".into());
     }
     install_from_bytes_with_policy(app, kind, &zip, true, before_replace).await?;
-    if native && item.publisher != OFFICIAL_PUBLISHER_ID {
+    if native {
         remember_trusted_key(app, &item.publisher, &key.id, &fingerprint)?;
     }
     Ok(())
@@ -1429,22 +1411,22 @@ fn plugin_resource_response_error(status: StatusCode, message: &str) -> Response
 }
 
 const SKIN_BRIDGE_JS: &str = r#"(function () {
-  if (window.parent === window || window.agileTilesSkin) return;
-  var skinId = window.__agileTilesSkinId || '';
+  if (window.parent === window || window.sideweaveSkin || window.agileTilesSkin) return;
+  var skinId = window.__sideweaveSkinId || window.__agileTilesSkinId || '';
   var sequence = 0;
   var pending = new Map();
   var context = null;
   var contextListeners = new Set();
   var eventListeners = new Map();
   function send(message) {
-    window.parent.postMessage(Object.assign({ __agileTilesSkin: true, skin_id: skinId }, message), '*');
+    window.parent.postMessage(Object.assign({ __sideweaveSkin: true, __agileTilesSkin: true, skin_id: skinId }, message), '*');
   }
   function call(action, payload, timeoutMs) {
     return new Promise(function (resolve, reject) {
       var id = ++sequence;
       var timer = window.setTimeout(function () {
         pending.delete(id);
-        reject(new Error('Agile Tiles UI request timed out'));
+        reject(new Error('SideWeave UI request timed out'));
       }, timeoutMs || 8000);
       pending.set(id, {
         resolve: function (value) { window.clearTimeout(timer); resolve(value); },
@@ -1455,7 +1437,7 @@ const SKIN_BRIDGE_JS: &str = r#"(function () {
   }
   window.addEventListener('message', function (event) {
     var message = event.data;
-    if (event.source !== window.parent || !message || message.__agileTilesSkin !== true || message.skin_id !== skinId) return;
+    if (event.source !== window.parent || !message || (message.__sideweaveSkin !== true && message.__agileTilesSkin !== true) || message.skin_id !== skinId) return;
     if (message.type === 'context') {
       context = message.context || null;
       var appearance = context && context.settings && context.settings.appearance || {};
@@ -1491,7 +1473,7 @@ const SKIN_BRIDGE_JS: &str = r#"(function () {
       else request.resolve(message.result);
     }
   });
-  window.agileTilesSkin = Object.freeze({
+  var skinApi = Object.freeze({
     apiVersion: 1,
     id: skinId,
     call: call,
@@ -1512,6 +1494,8 @@ const SKIN_BRIDGE_JS: &str = r#"(function () {
       };
     }
   });
+  window.sideweaveSkin = skinApi;
+  window.agileTilesSkin = skinApi;
   function invokeWindowAction(action, payload) {
     call(action, payload || {}).catch(function () {});
   }
@@ -1526,24 +1510,24 @@ const SKIN_BRIDGE_JS: &str = r#"(function () {
   }
   function installResizeHandles() {
     var surface = document.body && document.body.getAttribute('data-surface');
-    if ((surface !== 'detail' && surface !== 'control') || document.getElementById('__agile_tiles_resize_style')) return;
+    if ((surface !== 'detail' && surface !== 'control') || document.getElementById('__sideweave_resize_style')) return;
     var style = document.createElement('style');
-    style.id = '__agile_tiles_resize_style';
+    style.id = '__sideweave_resize_style';
     style.textContent = [
-      '[data-agile-tiles-resize]{position:fixed;z-index:2147483647;pointer-events:auto;background:transparent;touch-action:none}',
-      '[data-agile-tiles-resize="North"]{top:0;left:12px;right:12px;height:6px;cursor:n-resize}',
-      '[data-agile-tiles-resize="South"]{bottom:0;left:12px;right:12px;height:6px;cursor:s-resize}',
-      '[data-agile-tiles-resize="East"]{top:12px;right:0;bottom:12px;width:6px;cursor:e-resize}',
-      '[data-agile-tiles-resize="West"]{top:12px;left:0;bottom:12px;width:6px;cursor:w-resize}',
-      '[data-agile-tiles-resize="NorthEast"]{top:0;right:0;width:14px;height:14px;cursor:ne-resize}',
-      '[data-agile-tiles-resize="NorthWest"]{top:0;left:0;width:14px;height:14px;cursor:nw-resize}',
-      '[data-agile-tiles-resize="SouthEast"]{right:0;bottom:0;width:14px;height:14px;cursor:se-resize}',
-      '[data-agile-tiles-resize="SouthWest"]{left:0;bottom:0;width:14px;height:14px;cursor:sw-resize}'
+      '[data-sideweave_resize]{position:fixed;z-index:2147483647;pointer-events:auto;background:transparent;touch-action:none}',
+      '[data-sideweave_resize="North"]{top:0;left:12px;right:12px;height:6px;cursor:n-resize}',
+      '[data-sideweave_resize="South"]{bottom:0;left:12px;right:12px;height:6px;cursor:s-resize}',
+      '[data-sideweave_resize="East"]{top:12px;right:0;bottom:12px;width:6px;cursor:e-resize}',
+      '[data-sideweave_resize="West"]{top:12px;left:0;bottom:12px;width:6px;cursor:w-resize}',
+      '[data-sideweave_resize="NorthEast"]{top:0;right:0;width:14px;height:14px;cursor:ne-resize}',
+      '[data-sideweave_resize="NorthWest"]{top:0;left:0;width:14px;height:14px;cursor:nw-resize}',
+      '[data-sideweave_resize="SouthEast"]{right:0;bottom:0;width:14px;height:14px;cursor:se-resize}',
+      '[data-sideweave_resize="SouthWest"]{left:0;bottom:0;width:14px;height:14px;cursor:sw-resize}'
     ].join('');
     document.head.appendChild(style);
     ['North', 'South', 'East', 'West', 'NorthEast', 'NorthWest', 'SouthEast', 'SouthWest'].forEach(function (direction) {
       var handle = document.createElement('div');
-      handle.setAttribute('data-agile-tiles-resize', direction);
+      handle.setAttribute('data-sideweave_resize', direction);
       handle.setAttribute('aria-hidden', 'true');
       document.body.appendChild(handle);
     });
@@ -1552,11 +1536,11 @@ const SKIN_BRIDGE_JS: &str = r#"(function () {
     if (event.button !== 0) return;
     var target = event.target;
     if (!target || typeof target.closest !== 'function') return;
-    var handle = target.closest('[data-agile-tiles-resize]');
+    var handle = target.closest('[data-sideweave_resize]');
     if (handle) {
       event.preventDefault();
       event.stopPropagation();
-      invokeWindowAction('window.startResizeDragging', { direction: handle.getAttribute('data-agile-tiles-resize') });
+      invokeWindowAction('window.startResizeDragging', { direction: handle.getAttribute('data-sideweave_resize') });
       return;
     }
     if (inDragRegion(target)) invokeWindowAction('window.startDragging');
@@ -1573,7 +1557,7 @@ fn inject_skin_bridge(html: String, skin_id: &str) -> Result<Vec<u8>, String> {
     let skin_id =
         serde_json::to_string(skin_id).map_err(|_| "Could not encode skin id".to_string())?;
     let bridge = format!(
-        "<script>window.__agileTilesSkinId={};</script><script>{}</script>",
+        "<script>window.__sideweaveSkinId={};window.__agileTilesSkinId=window.__sideweaveSkinId;</script><script>{}</script>",
         skin_id, SKIN_BRIDGE_JS
     );
     let lower = html.to_ascii_lowercase();
@@ -2043,8 +2027,8 @@ pub fn web_plugin_call<R: Runtime>(
     let shared = shared_manifest(&manifest)?;
     if shared.runtime == PluginRuntime::WebSandbox {
         let method = request.method.as_deref().unwrap_or_default();
-        if let Some(permission) = agile_tiles_plugin_api::permissions::for_host_method(method) {
-            let denied_reason = if !agile_tiles_plugin_api::permissions::is_declared(
+        if let Some(permission) = sideweave_plugin_api::permissions::for_host_method(method) {
+            let denied_reason = if !sideweave_plugin_api::permissions::is_declared(
                 &shared.permissions,
                 permission,
             ) {
@@ -2253,7 +2237,7 @@ mod tests {
     #[test]
     fn backend_path_stays_inside_plugin_package() {
         let root =
-            std::env::temp_dir().join(format!("agile-tiles-market-test-{}", uuid::Uuid::new_v4()));
+            std::env::temp_dir().join(format!("sideweave_market-test-{}", uuid::Uuid::new_v4()));
         let backend = root.join("backend").join("plugin.exe");
         std::fs::create_dir_all(backend.parent().expect("backend parent exists"))
             .expect("create test backend directory");

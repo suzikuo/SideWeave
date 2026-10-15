@@ -32,11 +32,11 @@ use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_global_shortcut::Shortcut;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
-use agile_tiles_plugin_api::{
+use sideweave_plugin_api::{
     PluginHandshake, PluginHandshakeResponse, PluginInfo, PluginRequest, PluginResponse,
     PluginRuntime, PluginStatus,
 };
-use agile_tiles_plugin_runtime::PluginManager;
+use sideweave_plugin_runtime::PluginManager;
 use plugins::PluginMeta;
 use settings::Settings;
 
@@ -52,8 +52,8 @@ const SIDEBAR_COLLAPSE_FRAME: Duration = Duration::from_millis(16);
 pub(crate) fn plugin_manifest<R: tauri::Runtime>(
     app: &AppHandle<R>,
     id: &str,
-) -> Option<agile_tiles_plugin_api::PluginManifest> {
-    let plugin_id = agile_tiles_plugin_api::PluginId::new(id).ok()?;
+) -> Option<sideweave_plugin_api::PluginManifest> {
+    let plugin_id = sideweave_plugin_api::PluginId::new(id).ok()?;
     let state = host(app);
     let manager = state.plugin_manager.lock().unwrap();
     manager.as_ref().and_then(|m| {
@@ -102,7 +102,7 @@ struct Host {
     settings: Mutex<Settings>,
     performance_manager: Arc<performance::PerformanceManager>,
     plugin_manager: Mutex<Option<PluginManager>>,
-    plugin_services: Mutex<Option<Arc<dyn agile_tiles_plugin_sdk::HostServices>>>,
+    plugin_services: Mutex<Option<Arc<dyn sideweave_plugin_sdk::HostServices>>>,
     /// 悬停令牌：hover_enter 自增，延迟收起前比对，防止误收
     hover_token: Mutex<u64>,
     /// 收起几何落地代数：延迟落地期间有 expand/新 collapse 则取消
@@ -232,7 +232,7 @@ impl Host {
 
 pub(crate) fn plugin_permission_granted<R: tauri::Runtime>(
     app: &AppHandle<R>,
-    plugin_id: &agile_tiles_plugin_api::PluginId,
+    plugin_id: &sideweave_plugin_api::PluginId,
     permission: &str,
 ) -> bool {
     host(app)
@@ -1221,7 +1221,7 @@ fn set_setting(
         match new_key.parse::<Shortcut>() {
             Ok(sc) => {
                 if let Err(e) = gs.register(sc) {
-                    eprintln!("[agile-tiles] 注册新热键失败: {e}");
+                    eprintln!("[sideweave_] 注册新热键失败: {e}");
                     return Err(format!("热键注册失败（可能被其他程序占用）: {e}"));
                 }
             }
@@ -1268,7 +1268,7 @@ fn set_setting(
             .state::<desktop_notifications::DesktopNotificationManager>()
             .refresh_all(app.clone())
         {
-            eprintln!("[agile-tiles] failed to refresh notification renderer: {error}");
+            eprintln!("[sideweave_] failed to refresh notification renderer: {error}");
         }
     }
 
@@ -1702,9 +1702,9 @@ fn set_plugin_permission(
     if window.label() != DETAIL {
         return Err("插件权限只能从宿主设置页修改".into());
     }
-    let parsed_id = agile_tiles_plugin_api::PluginId::new(plugin_id.clone())
+    let parsed_id = sideweave_plugin_api::PluginId::new(plugin_id.clone())
         .map_err(|error| error.to_string())?;
-    if !agile_tiles_plugin_api::permissions::is_known(&permission) {
+    if !sideweave_plugin_api::permissions::is_known(&permission) {
         return Err(format!("未知插件权限：{permission}"));
     }
     let requested = {
@@ -1719,7 +1719,7 @@ fn set_plugin_permission(
             .map(|info| info.manifest.permissions.clone())
             .ok_or_else(|| format!("插件不存在：{plugin_id}"))?
     };
-    if !agile_tiles_plugin_api::permissions::is_declared(&requested, &permission) {
+    if !sideweave_plugin_api::permissions::is_declared(&requested, &permission) {
         return Err(format!("插件未声明此权限：{permission}"));
     }
 
@@ -1754,10 +1754,10 @@ fn plugin_handshake(app: AppHandle, handshake: PluginHandshake) -> PluginHandsha
             request_id: fallback_request_id,
             plugin_id: fallback_plugin_id,
             accepted: false,
-            api_version: agile_tiles_plugin_api::API_VERSION,
+            api_version: sideweave_plugin_api::API_VERSION,
             capabilities: Vec::new(),
-            error: Some(agile_tiles_plugin_api::PluginError {
-                code: agile_tiles_plugin_api::ErrorCode::PluginUnavailable,
+            error: Some(sideweave_plugin_api::PluginError {
+                code: sideweave_plugin_api::ErrorCode::PluginUnavailable,
                 message: "plugin runtime is not initialized".into(),
             }),
         })
@@ -1778,8 +1778,8 @@ pub(crate) fn plugin_call_blocking(
     ensure_native_plugin_backend(app, manager, &request.plugin_id)?;
     let should_activate = matches!(
         &request.kind,
-        agile_tiles_plugin_api::PluginRequestKind::Call
-            | agile_tiles_plugin_api::PluginRequestKind::GetInfo
+        sideweave_plugin_api::PluginRequestKind::Call
+            | sideweave_plugin_api::PluginRequestKind::GetInfo
     ) && manager
         .registry()
         .get(&request.plugin_id)
@@ -1801,7 +1801,7 @@ pub(crate) fn plugin_call_blocking(
 fn ensure_native_plugin_backend(
     app: &AppHandle,
     manager: &mut PluginManager,
-    plugin_id: &agile_tiles_plugin_api::PluginId,
+    plugin_id: &sideweave_plugin_api::PluginId,
 ) -> Result<(), String> {
     let Some(info) = manager.registry().get(plugin_id).cloned() else {
         return Ok(());
@@ -1832,7 +1832,7 @@ fn ensure_native_plugin_backend(
     match info.runtime {
         PluginRuntime::DynamicLibrary => {
             let plugin =
-                agile_tiles_plugin_runtime::DynamicPlugin::load(&backend, info.manifest, services)
+                sideweave_plugin_runtime::DynamicPlugin::load(&backend, info.manifest, services)
                     .map_err(|error| format!("failed to load plugin {plugin_id}: {error}"))?;
             manager
                 .attach_dynamic(Box::new(plugin))
@@ -1860,7 +1860,7 @@ fn unload_plugin_for_package_change<R: tauri::Runtime>(
     app: &AppHandle<R>,
     id: &str,
 ) -> Result<(), String> {
-    let plugin_id = agile_tiles_plugin_api::PluginId::new(id).map_err(|error| error.to_string())?;
+    let plugin_id = sideweave_plugin_api::PluginId::new(id).map_err(|error| error.to_string())?;
     let host_state = host(app);
     let mut manager = host_state.plugin_manager.lock().unwrap();
     if let Some(manager) = manager.as_mut() {
@@ -1879,14 +1879,14 @@ fn load_runtime_plugins(plugin_manager: &mut PluginManager, data_dir: &Path) -> 
         let location_text = location.display().to_string();
         let plugin_id = manifest.id.clone();
         match manifest.runtime.clone() {
-            agile_tiles_plugin_api::PluginRuntime::DynamicLibrary => {
+            sideweave_plugin_api::PluginRuntime::DynamicLibrary => {
                 if !market::is_trusted_local_plugin(&location) {
-                    eprintln!("[agile-tiles] skip untrusted dynamic plugin: {}", plugin_id);
+                    eprintln!("[sideweave_] skip untrusted dynamic plugin: {}", plugin_id);
                     continue;
                 }
                 let Some(_library) = market::plugin_backend_path(&location, &manifest) else {
                     eprintln!(
-                        "[agile-tiles] dynamic plugin library is missing: {}",
+                        "[sideweave_] dynamic plugin library is missing: {}",
                         plugin_id
                     );
                     continue;
@@ -1895,17 +1895,17 @@ fn load_runtime_plugins(plugin_manager: &mut PluginManager, data_dir: &Path) -> 
                     .discover_trusted_local_manifest(manifest, location_text, source)
                     .map_err(|error| error.as_plugin_error().message)?;
             }
-            agile_tiles_plugin_api::PluginRuntime::ExternalProcess => {
+            sideweave_plugin_api::PluginRuntime::ExternalProcess => {
                 if !market::is_trusted_local_plugin(&location) {
                     eprintln!(
-                        "[agile-tiles] skip untrusted external plugin: {}",
+                        "[sideweave_] skip untrusted external plugin: {}",
                         plugin_id
                     );
                     continue;
                 }
                 let Some(_executable) = market::plugin_backend_path(&location, &manifest) else {
                     eprintln!(
-                        "[agile-tiles] external plugin backend is missing: {}",
+                        "[sideweave_] external plugin backend is missing: {}",
                         plugin_id
                     );
                     continue;
@@ -1914,14 +1914,14 @@ fn load_runtime_plugins(plugin_manager: &mut PluginManager, data_dir: &Path) -> 
                     .discover_trusted_local_manifest(manifest, location_text, source)
                     .map_err(|error| error.as_plugin_error().message)?;
             }
-            agile_tiles_plugin_api::PluginRuntime::WebSandbox => {
+            sideweave_plugin_api::PluginRuntime::WebSandbox => {
                 plugin_manager
                     .discover_manifest(manifest, location_text, source)
                     .map_err(|error| error.as_plugin_error().message)?;
             }
-            agile_tiles_plugin_api::PluginRuntime::InProcess => {
+            sideweave_plugin_api::PluginRuntime::InProcess => {
                 eprintln!(
-                    "[agile-tiles] reject legacy in-process plugin package: {}",
+                    "[sideweave_] reject legacy in-process plugin package: {}",
                     plugin_id
                 );
             }
@@ -1965,7 +1965,7 @@ fn activate_startup_plugins(app: &AppHandle) -> Result<(), String> {
     for id in ids {
         startup_log(format!("app_ready worker: loading backend {id}"));
         if let Err(error) = ensure_native_plugin_backend(app, manager, &id) {
-            eprintln!("[agile-tiles] startup plugin load failed ({id}): {error}");
+            eprintln!("[sideweave_] startup plugin load failed ({id}): {error}");
             continue;
         }
         startup_log(format!("app_ready worker: activating {id}"));
@@ -1973,9 +1973,9 @@ fn activate_startup_plugins(app: &AppHandle) -> Result<(), String> {
             Ok(response) if response.ok => {
                 startup_log(format!("app_ready worker: activated {id}"));
             }
-            Ok(_) => eprintln!("[agile-tiles] startup plugin activation failed: {id}"),
+            Ok(_) => eprintln!("[sideweave_] startup plugin activation failed: {id}"),
             Err(error) => eprintln!(
-                "[agile-tiles] startup plugin activation failed ({}): {}",
+                "[sideweave_] startup plugin activation failed ({}): {}",
                 id,
                 error.as_plugin_error().message
             ),
@@ -2023,7 +2023,7 @@ pub(crate) fn host_plugin_registered<R: tauri::Runtime>(app: &AppHandle<R>, id: 
     if let Some(user_id) = id.strip_prefix("user:") {
         return market::valid_id(user_id);
     }
-    let Ok(plugin_id) = agile_tiles_plugin_api::PluginId::new(id) else {
+    let Ok(plugin_id) = sideweave_plugin_api::PluginId::new(id) else {
         return false;
     };
     host(app)
@@ -2176,7 +2176,15 @@ fn build_updater<R: tauri::Runtime>(
     app: &AppHandle<R>,
 ) -> Result<tauri_plugin_updater::Updater, String> {
     use tauri_plugin_updater::UpdaterExt;
+    const UPDATE_MANIFEST_URL: &str =
+        "https://github.com/suzikuo/SideWeave/releases/download/update-manifest/latest.json";
+    let mirror_prefix = host_settings(app).general.github_mirror;
+    let endpoint = market::mirrored_github_url(&mirror_prefix, UPDATE_MANIFEST_URL)?
+        .parse::<url::Url>()
+        .map_err(|error| format!("更新清单 URL 无效: {error}"))?;
     app.updater_builder()
+        .endpoints(vec![endpoint])
+        .map_err(|error| error.to_string())?
         .build()
         .map_err(|e| e.to_string())
 }
@@ -2218,18 +2226,49 @@ async fn update_check(app: AppHandle) -> Result<UpdateInfo, String> {
 #[tauri::command]
 async fn update_install(app: AppHandle) -> Result<String, String> {
     let updater = build_updater(&app)?;
-    let update = updater
+    let mut update = updater
         .check()
         .await
         .map_err(|e| format!("检查更新失败: {e}"))?
         .ok_or_else(|| "当前已是最新版本".to_string())?;
     let new_version = update.version.clone();
+    let mirror_prefix = host_settings(&app).general.github_mirror;
+    update.download_url = market::mirrored_github_url(&mirror_prefix, update.download_url.as_str())?
+        .parse::<url::Url>()
+        .map_err(|error| format!("更新包 URL 无效: {error}"))?;
+    let progress_app = app.clone();
+    let finish_app = app.clone();
+    let downloaded = std::sync::Arc::new(AtomicU64::new(0));
+    let chunk_counter = std::sync::Arc::clone(&downloaded);
+    let finish_counter = std::sync::Arc::clone(&downloaded);
     update
         .download_and_install(
-            &mut |_chunk, _total| {
-                // 进度可经 emit 推送前端（当前版本前端只显示状态文案）
+            &mut move |chunk: usize, total: Option<u64>| {
+                let current = chunk_counter.fetch_add(chunk as u64, Ordering::Relaxed) + chunk as u64;
+                let percent = total.map(|size| {
+                    if size == 0 { 0 } else { ((current * 100) / size).min(100) }
+                });
+                let _ = progress_app.emit(
+                    "update://progress",
+                    serde_json::json!({
+                        "downloaded": current,
+                        "total": total,
+                        "percent": percent,
+                        "phase": "download"
+                    }),
+                );
             },
-            || {},
+            move || {
+                let _ = finish_app.emit(
+                    "update://progress",
+                    serde_json::json!({
+                        "downloaded": finish_counter.load(Ordering::Relaxed),
+                        "total": null,
+                        "percent": 100,
+                        "phase": "install"
+                    }),
+                );
+            },
         )
         .await
         .map_err(|e| format!("下载/安装更新失败: {e}"))?;
@@ -2425,11 +2464,6 @@ pub fn run() {
                 settings: mut s,
             } = loaded_settings;
             startup_log("setup: settings loaded");
-            if s.appearance.skin == "user:minecraft" {
-                if let Err(error) = market::ensure_pixel_skin_package(&data_dir) {
-                    eprintln!("[agile-tiles] Pixel skin migration failed: {error}");
-                }
-            }
             migrate::migrate_legacy(&data_dir, &mut s);
             if !s.plugins.permission_grants_initialized {
                 let installed_permissions = host(&handle)
@@ -2459,10 +2493,10 @@ pub fn run() {
                         .or_default();
                     for permission in requested {
                         let expanded = match permission.as_str() {
-                            agile_tiles_plugin_api::permissions::NOTIFICATION => vec![
-                                agile_tiles_plugin_api::permissions::NOTIFICATION_SYSTEM,
-                                agile_tiles_plugin_api::permissions::NOTIFICATION_DESKTOP,
-                                agile_tiles_plugin_api::permissions::NOTIFICATION_SIDEBAR,
+                            sideweave_plugin_api::permissions::NOTIFICATION => vec![
+                                sideweave_plugin_api::permissions::NOTIFICATION_SYSTEM,
+                                sideweave_plugin_api::permissions::NOTIFICATION_DESKTOP,
+                                sideweave_plugin_api::permissions::NOTIFICATION_SIDEBAR,
                             ],
                             _ => vec![permission.as_str()],
                         };
@@ -2480,7 +2514,7 @@ pub fn run() {
             );
             // 首启即写入当前设置结构，旧 OSS 凭据不会再保存。
             if let Err(error) = persist_settings(&handle, &s) {
-                eprintln!("[agile-tiles] {error}");
+                eprintln!("[sideweave_] {error}");
             }
             startup_log("setup: settings persistence finished");
 
@@ -2523,10 +2557,10 @@ pub fn run() {
             match hotkey.parse::<Shortcut>() {
                 Ok(shortcut) => {
                     if let Err(e) = app.global_shortcut().register(shortcut) {
-                        eprintln!("[agile-tiles] 注册全局热键 {hotkey} 失败: {e}");
+                        eprintln!("[sideweave_] 注册全局热键 {hotkey} 失败: {e}");
                     }
                 }
-                Err(e) => eprintln!("[agile-tiles] 热键配置无效 {hotkey}: {e}"),
+                Err(e) => eprintln!("[sideweave_] 热键配置无效 {hotkey}: {e}"),
             }
 
             // 控制中心热键（空串 = 不启用）
@@ -2535,10 +2569,10 @@ pub fn run() {
                 match cc_hotkey.parse::<Shortcut>() {
                     Ok(shortcut) => {
                         if let Err(e) = app.global_shortcut().register(shortcut) {
-                            eprintln!("[agile-tiles] 控制中心热键 {cc_hotkey} 注册失败: {e}");
+                            eprintln!("[sideweave_] 控制中心热键 {cc_hotkey} 注册失败: {e}");
                         }
                     }
-                    Err(e) => eprintln!("[agile-tiles] 控制中心热键配置无效 {cc_hotkey}: {e}"),
+                    Err(e) => eprintln!("[sideweave_] 控制中心热键配置无效 {cc_hotkey}: {e}"),
                 }
             }
 

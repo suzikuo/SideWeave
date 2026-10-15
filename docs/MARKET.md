@@ -2,8 +2,8 @@
 
 The public catalog is a separate static GitHub repository. The app reads:
 
-- `https://raw.githubusercontent.com/suzikuo/sideweave-marketplace/main/marketplace.json`
-- `https://raw.githubusercontent.com/suzikuo/sideweave-marketplace/main/publishers.json`
+- `https://raw.githubusercontent.com/suzikuo/SideWeave-Marketplace/master/marketplace.json`
+- `https://raw.githubusercontent.com/suzikuo/SideWeave-Marketplace/master/publishers.json`
 
 The client does not call the GitHub API. It shows the last valid local cache first, then refreshes both documents in the background with their own ETags. A failed request or invalid replacement never overwrites the last valid cache.
 
@@ -77,10 +77,10 @@ New package manifests write `capabilities`; the host still reads legacy `permiss
 
 Native plugins are beta packages and require a signature plus explicit trust the first time a publisher key is seen. A key change requires a new prompt showing the publisher and key fingerprint. Unreviewed native packages show an additional warning. Capabilities reuse the host permission IDs and support review and host API authorization; they do not sandbox native binaries. Native code can access the system directly, so the trust prompt says so.
 
-The SideWeave publisher key is pinned into the app at build time with the `SIDEWEAVE_OFFICIAL_PUBLISHER_KEY` GitHub Actions variable. The marketplace cannot replace it. It is separate from the Tauri updater signing key.
+The SideWeave publisher key is pinned into the app at build time from the neighboring marketplace checkout's `publishers.json`. The marketplace cannot replace it. It is separate from the Tauri updater signing key.
 
 ## Deep links
 
 The app accepts `sideweave://install/plugin/<id>` and `sideweave://install/skin/<id>`. The handler checks the strict URL shape and then resolves the ID from the cached catalog. It cannot install an arbitrary URL or repository.
 
-The starter marketplace directory and non-executing GitHub Actions validator are under `distribution/marketplace`.
+The marketplace directory and non-executing local validator are maintained in `suzikuo/SideWeave-Marketplace`.

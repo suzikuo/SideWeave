@@ -6,7 +6,7 @@ use tauri::{Manager, Runtime};
 pub fn app_data_dir<R: Runtime>(app: &tauri::AppHandle<R>) -> PathBuf {
     app.path()
         .app_data_dir()
-        .unwrap_or_else(|_| std::env::temp_dir().join("agile-tiles"))
+        .unwrap_or_else(|_| std::env::temp_dir().join("sideweave_"))
 }
 
 pub fn state_file(data_dir: &std::path::Path) -> PathBuf {

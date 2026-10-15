@@ -3,7 +3,7 @@ use crate::{
     DesktopNotificationOptions, NotificationService, SecretService, ShortcutAction, ShortcutHandler, StorageService, SystemService,
     WindowEventHandler, WindowService, WindowSpec,
 };
-use agile_tiles_plugin_api::{PluginEvent, PluginId};
+use sideweave_plugin_api::{PluginEvent, PluginId};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

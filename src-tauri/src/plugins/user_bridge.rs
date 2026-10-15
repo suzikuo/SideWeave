@@ -94,7 +94,7 @@ pub const BRIDGE_JS: &str = r#"(function () {
           panelFill = childFill;
         }
       });
-      root.style.setProperty('--agile-tiles-plugin-panel-fill', panelFill);
+      root.style.setProperty('--sideweave_plugin-panel-fill', panelFill);
       panelFillCaptured = true;
     }
 
@@ -107,7 +107,7 @@ pub const BRIDGE_JS: &str = r#"(function () {
     }
     target.style.setProperty(
       'background-color',
-      'color-mix(in srgb, var(--agile-tiles-plugin-panel-fill, transparent) calc(var(--detail-panel-opacity, 1) * 100%), transparent)',
+      'color-mix(in srgb, var(--sideweave_plugin-panel-fill, transparent) calc(var(--detail-panel-opacity, 1) * 100%), transparent)',
       'important'
     );
   }

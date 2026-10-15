@@ -64,6 +64,7 @@ const emit = defineEmits<{
 }>()
 
 interface SkinRequest {
+  __sideweaveSkin?: boolean
   __agileTilesSkin?: boolean
   skin_id?: string
   type?: string
@@ -73,6 +74,7 @@ interface SkinRequest {
 }
 
 interface SkinReply {
+  __sideweaveSkin: true
   __agileTilesSkin: true
   skin_id: string
   type: 'reply'
@@ -152,6 +154,7 @@ function sendContext() {
     if (value) variables[name] = value
   }
   send({
+    __sideweaveSkin: true,
     __agileTilesSkin: true,
     skin_id: activeSkinId.value,
     type: 'context',
@@ -172,6 +175,7 @@ function sendContext() {
 function sendEvent(name: string, payload: unknown) {
   if (!ready.value) return
   send({
+    __sideweaveSkin: true,
     __agileTilesSkin: true,
     skin_id: activeSkinId.value,
     type: 'event',
@@ -335,7 +339,7 @@ async function onMessage(event: MessageEvent<SkinRequest>) {
   if (
     event.source !== iframe.value?.contentWindow ||
     !message ||
-    message.__agileTilesSkin !== true ||
+    (message.__sideweaveSkin !== true && message.__agileTilesSkin !== true) ||
     message.skin_id !== activeSkinId.value
   ) return
 
@@ -354,6 +358,7 @@ async function onMessage(event: MessageEvent<SkinRequest>) {
     const result = await dispatch(String(message.action ?? ''), message.payload ?? {})
     if (iframe.value !== requestFrame || activeSkinId.value !== requestSkinId) return
     const reply: SkinReply = {
+      __sideweaveSkin: true,
       __agileTilesSkin: true,
       skin_id: activeSkinId.value,
       type: 'reply',
@@ -364,6 +369,7 @@ async function onMessage(event: MessageEvent<SkinRequest>) {
   } catch (error) {
     if (iframe.value !== requestFrame || activeSkinId.value !== requestSkinId) return
     const reply: SkinReply = {
+      __sideweaveSkin: true,
       __agileTilesSkin: true,
       skin_id: activeSkinId.value,
       type: 'reply',

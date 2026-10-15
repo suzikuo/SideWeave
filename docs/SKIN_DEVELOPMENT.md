@@ -4,15 +4,24 @@
 
 ## 创建皮肤包
 
-复制 `dev/skins/minecraft` 为 `dev/skins/my-skin`，再编辑清单、样式和资源。市场模板可以在未来的 `sideweave-plugin-template` 仓库中独立维护；当前皮肤源仍放在宿主仓库。
+宿主只内置默认皮肤。官方皮肤（包括像素皮肤）位于 `SideWeave-Plugins/skins/<id>`，并按独立第三方包的 manifest、ZIP、签名和 Marketplace 规范发布。第三方开发者从 `suzikuo/SideWeave-plugin-template/skin` 开始，复制到自己的仓库，再编辑清单、样式和资源。
 
 生成的 `manifest.json` 包含四个入口：
 
 ```json
 {
+  "manifestVersion": 1,
+  "apiVersion": 1,
   "id": "my-skin",
   "name": "我的皮肤",
   "version": "1.0.0",
+  "type": "skin",
+  "description": "我的 SideWeave 皮肤",
+  "author": "作者名称",
+  "publisher": "your-publisher-id",
+  "key_id": "publisher-key-id",
+  "requires_trust": false,
+  "capabilities": [],
   "skinUi": {
     "assetRoot": "ui",
     "sidebar": "sidebar.html",
@@ -47,10 +56,10 @@
 
 ## 宿主 API
 
-宿主会在每个 HTML 入口中注入 `window.agileTilesSkin`。页面运行在隔离 iframe 中，不能直接调用 Tauri。通过 `onContext` 获取当前界面状态，通过 `onEvent` 监听宿主变化，通过 `call` 请求宿主操作：
+宿主会在每个 HTML 入口中注入 `window.sideweaveSkin`。页面运行在隔离 iframe 中，不能直接调用 Tauri。通过 `onContext` 获取当前界面状态，通过 `onEvent` 监听宿主变化，通过 `call` 请求宿主操作。旧的 `window.agileTilesSkin` 名称仍作为兼容别名提供：
 
 ```js
-const ui = window.agileTilesSkin
+const ui = window.sideweaveSkin
 
 ui.onContext((context) => {
   document.body.dataset.surface = context.surface
@@ -140,4 +149,4 @@ await ui.call('market.install', { kind: 'skin', id: 'nebula-console' })
 
 ## 本地打包安装
 
-将 `dev/skins/my-skin` 的内容压缩为 ZIP，并确保 `manifest.json` 位于压缩包根目录。然后在 SideWeave 插件/皮肤中心选择“本地导入”，安装后在皮肤中心应用。每次修改入口或资源后重新压缩并导入即可查看效果。
+在 SideWeave-Plugins 仓库根目录运行 `tools/build-skin-packages.ps1 -SkinId my-skin`，生成的 ZIP 会把 `manifest.json` 放在压缩包根目录。也可以在 SideWeave 插件/皮肤中心选择“本地导入”，安装后在皮肤中心应用。每次修改入口或资源后重新打包并导入即可查看效果。

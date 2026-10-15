@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use agile_tiles_plugin_api::{PluginId, PluginRequest, PluginRequestKind};
+use sideweave_plugin_api::{PluginId, PluginRequest, PluginRequestKind};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::{
@@ -128,7 +128,7 @@ pub fn ensure_preview_window(app: &AppHandle) -> Result<tauri::WebviewWindow, St
     Ok(win)
 }
 
-fn fallback_payload(plugin_id: &str, manifest: &agile_tiles_plugin_api::PluginManifest) -> Value {
+fn fallback_payload(plugin_id: &str, manifest: &sideweave_plugin_api::PluginManifest) -> Value {
     serde_json::json!({
         "mode": "static",
         "pluginId": plugin_id,

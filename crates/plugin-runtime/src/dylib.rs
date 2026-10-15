@@ -1,11 +1,11 @@
 //! Trusted Windows dynamic-library plugin loader.
 
-use agile_tiles_plugin_api::{
+use sideweave_plugin_api::{
     ErrorCode, PluginBuffer, PluginDylibApi, PluginDylibEntry, PluginError, PluginEvent,
     PluginHostApi, PluginId, PluginManifest, PluginRequest, PluginResponse, PluginRuntime,
-    DYNAMIC_PLUGIN_ABI_VERSION, DYNAMIC_PLUGIN_ENTRY_SYMBOL,
+    DYNAMIC_PLUGIN_ABI_VERSION, DYNAMIC_PLUGIN_ENTRY_SYMBOL, LEGACY_DYNAMIC_PLUGIN_ENTRY_SYMBOL,
 };
-use agile_tiles_plugin_sdk::{
+use sideweave_plugin_sdk::{
     DesktopNotificationOptions, HostError, HostServices, NotificationOptions, ShortcutAction, ShortcutHandler, WindowEvent,
     WindowEventHandler, WindowService, WindowSpec,
 };
@@ -107,8 +107,11 @@ impl DynamicPlugin {
         }
         let library = LoadedLibrary(handle);
         let symbol = unsafe { GetProcAddress(handle, DYNAMIC_PLUGIN_ENTRY_SYMBOL.as_ptr()) };
+        let symbol = symbol.or_else(|| unsafe {
+            GetProcAddress(handle, LEGACY_DYNAMIC_PLUGIN_ENTRY_SYMBOL.as_ptr())
+        });
         let Some(symbol) = symbol else {
-            return Err("plugin DLL is missing agile_tiles_plugin_entry".into());
+            return Err("plugin DLL is missing the SideWeave entry point".into());
         };
         let entry: PluginDylibEntry = unsafe { std::mem::transmute(symbol) };
         let api_ptr = unsafe { entry() };
@@ -187,12 +190,12 @@ impl DynamicPlugin {
     }
 }
 
-impl agile_tiles_plugin_sdk::Plugin for DynamicPlugin {
+impl sideweave_plugin_sdk::Plugin for DynamicPlugin {
     fn manifest(&self) -> &PluginManifest {
         &self.manifest
     }
 
-    fn handle(&mut self, request: PluginRequest, _ctx: &agile_tiles_plugin_sdk::PluginContext) -> PluginResponse {
+    fn handle(&mut self, request: PluginRequest, _ctx: &sideweave_plugin_sdk::PluginContext) -> PluginResponse {
         let request_id = request.request_id.clone();
         let plugin_id = request.plugin_id.clone();
         match self.invocation.request(&request) {
@@ -277,8 +280,8 @@ unsafe extern "C" fn host_call(
 }
 
 fn dispatch_host_call(context: &DylibHostContext, method: &str, payload: Value) -> Result<Value, String> {
-    if let Some(permission) = agile_tiles_plugin_api::permissions::for_host_method(method) {
-        if !agile_tiles_plugin_api::permissions::is_declared(&context.permissions, permission) {
+    if let Some(permission) = sideweave_plugin_api::permissions::for_host_method(method) {
+        if !sideweave_plugin_api::permissions::is_declared(&context.permissions, permission) {
             return Err(format!("permission not declared by plugin: {permission}"));
         }
         if !context

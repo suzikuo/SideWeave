@@ -52,7 +52,8 @@ export const EVENTS = {
   settingsChanged: 'settings://changed',
   sidebarExpanded: 'sidebar://expanded',
   mainSurface: 'main://surface',
-  previewUpdate: 'preview://update'
+  previewUpdate: 'preview://update',
+  updateProgress: 'update://progress'
 } as const
 
 // ---------- 在线更新 ----------

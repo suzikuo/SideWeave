@@ -1,5 +1,5 @@
 param(
-    [string]$PluginExecutable = "$env:APPDATA\com.agiletiles.app\user_plugins\screenshot\agile-tiles-screenshot-core.exe",
+    [string]$PluginExecutable = "$env:APPDATA\com.agiletiles.app\user_plugins\screenshot\sideweave_screenshot-core.exe",
     [ValidateRange(1, 64)]
     [int]$ScrollSteps = 8,
     [ValidateRange(1, 120)]

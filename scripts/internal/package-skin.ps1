@@ -10,7 +10,7 @@ $Source = Join-Path $RepoRoot "dev\skins\$SkinId"
 $OutputRoot = if ([IO.Path]::IsPathRooted($OutputDir)) { [IO.Path]::GetFullPath($OutputDir) } else { [IO.Path]::GetFullPath((Join-Path $RepoRoot $OutputDir)) }
 $ManifestPath = Join-Path $Source "manifest.json"
 if (-not (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) { throw "Skin package not found: $Source" }
-if (-not $env:SIDEWEAVE_OFFICIAL_PUBLISHER_KEY_ID) { throw "Set SIDEWEAVE_OFFICIAL_PUBLISHER_KEY_ID for the release workflow" }
+if (-not $env:SIDEWEAVE_OFFICIAL_PUBLISHER_KEY_ID) { throw "Set SIDEWEAVE_OFFICIAL_PUBLISHER_KEY_ID before packaging an official skin" }
 
 $manifest = Get-Content -LiteralPath $ManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
 if ($manifest.id -ne $SkinId -or $manifest.version -ne $Version) {

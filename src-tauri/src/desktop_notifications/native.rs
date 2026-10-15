@@ -1011,10 +1011,10 @@ unsafe fn colors(
     state: &NativeSurfaceState,
 ) -> (u32, u32, u32, u32, u32) {
     let tone = match notification.kind {
-        agile_tiles_plugin_sdk::DesktopNotificationKind::Success => rgb(71, 207, 166),
-        agile_tiles_plugin_sdk::DesktopNotificationKind::Warning => rgb(232, 177, 79),
-        agile_tiles_plugin_sdk::DesktopNotificationKind::Alarm => rgb(255, 106, 120),
-        agile_tiles_plugin_sdk::DesktopNotificationKind::Info => rgb(110, 157, 255),
+        sideweave_plugin_sdk::DesktopNotificationKind::Success => rgb(71, 207, 166),
+        sideweave_plugin_sdk::DesktopNotificationKind::Warning => rgb(232, 177, 79),
+        sideweave_plugin_sdk::DesktopNotificationKind::Alarm => rgb(255, 106, 120),
+        sideweave_plugin_sdk::DesktopNotificationKind::Info => rgb(110, 157, 255),
     };
     let (background, custom_background, default_foreground, default_body, border) =
         match state.surface {

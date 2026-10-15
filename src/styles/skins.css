@@ -1,4 +1,4 @@
-/* Agile Tiles - 皮肤包
+/* SideWeave - 皮肤包
  * 皮肤 = 整体换装：背景图 + 字体气质 + 形状语言 + 调色板（tokens.css）。
  * data-skin 挂在 <html> 上，与 data-theme 正交。
  * 背景图由构建时资源引入（src/assets/skins/）。

@@ -65,7 +65,7 @@ pub async fn backup_export(app: AppHandle) -> Result<String, String> {
         }
         dialog
             .add_filter("备份文件", &["zip"])
-            .set_file_name(&format!("agile-tiles-backup-{stamp}.zip"))
+            .set_file_name(&format!("sideweave_backup-{stamp}.zip"))
             .blocking_save_file()
     });
     let Some(file) = file else {

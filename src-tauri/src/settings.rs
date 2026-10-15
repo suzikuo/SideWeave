@@ -13,6 +13,8 @@ pub struct General {
     pub auto_hide_delay: u32,
     pub hover_preview_delay: u32,
     pub performance_profile: String,
+    /// Optional HTTPS prefix for GitHub proxy services. Empty means use GitHub directly.
+    pub github_mirror: String,
 }
 
 impl Default for General {
@@ -23,6 +25,7 @@ impl Default for General {
             auto_hide_delay: 1000,
             hover_preview_delay: 350,
             performance_profile: "balanced".into(),
+            github_mirror: String::new(),
         }
     }
 }
@@ -150,8 +153,10 @@ pub fn load_persisted(value: JsonValue) -> LoadedSettings {
         }
     }
     let mut settings: Settings = serde_json::from_value(value).unwrap_or_default();
-    // The former built-in Pixel skin is now the standalone `minecraft` skin package.
-    // Keep existing users on that skin; the frontend loads it from user_skins.
+    settings.general.github_mirror = validate_github_mirror(&settings.general.github_mirror)
+        .unwrap_or_default();
+    // Keep the old built-in skin selection mapped to its standalone package ID.
+    // The package itself is installed and loaded like any other user skin.
     if settings.appearance.skin == "minecraft" {
         settings.appearance.skin = "user:minecraft".into();
     }
@@ -233,6 +238,34 @@ fn as_enum(v: &JsonValue, allowed: &[&str]) -> Result<String, String> {
     }
 }
 
+pub fn validate_github_mirror(value: &str) -> Result<String, String> {
+    let value = value.trim();
+    if value.is_empty()
+        || matches!(
+            value,
+            "https://ghfast.top/https://"
+                | "https://ghproxy.net/https://"
+                | "https://gh-proxy.org/https://"
+        )
+    {
+        return Ok(value.to_string());
+    }
+    if value.len() > 300 || !value.ends_with('/') {
+        return Err("镜像前缀必须以 / 结尾，且不超过 300 个字符".into());
+    }
+    let url = url::Url::parse(value).map_err(|_| "镜像前缀必须是有效的 HTTPS URL".to_string())?;
+    if url.scheme() != "https"
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return Err("镜像前缀必须使用 HTTPS，且不能包含账号、密码、查询参数或片段".into());
+    }
+    Ok(value.to_string())
+}
+
 fn as_color(v: &JsonValue) -> Result<String, String> {
     let s = v.as_str().ok_or_else(|| "需要字符串".to_string())?;
     let ok = s.len() == 7 && s.starts_with('#') && s[1..].chars().all(|c| c.is_ascii_hexdigit());
@@ -288,6 +321,10 @@ pub fn apply_setting(
         ("general", "performance_profile") => {
             s.general.performance_profile =
                 as_enum(v, &["eco", "balanced", "performance", "auto"])?;
+        }
+        ("general", "github_mirror") => {
+            let value = v.as_str().ok_or_else(|| "镜像前缀需要是字符串".to_string())?;
+            s.general.github_mirror = validate_github_mirror(value)?;
         }
         ("notifications", "render_mode") => {
             s.notifications.render_mode = as_enum(v, &["web", "native"])?;

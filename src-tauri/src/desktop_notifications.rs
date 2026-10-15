@@ -1,6 +1,6 @@
 //! Host-owned notification surfaces shared by native plugins.
 
-use agile_tiles_plugin_sdk::{DesktopNotificationKind, DesktopNotificationOptions, HostError};
+use sideweave_plugin_sdk::{DesktopNotificationKind, DesktopNotificationOptions, HostError};
 use serde::Serialize;
 use std::collections::HashSet;
 use std::sync::{Arc, Condvar, Mutex};
@@ -352,7 +352,7 @@ fn schedule_window_update(app: AppHandle, surface: Surface) -> Result<(), String
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             pending.scheduled = false;
-            eprintln!("[agile-tiles] failed to schedule host notification update: {error}");
+            eprintln!("[sideweave_] failed to schedule host notification update: {error}");
         }
     });
     Ok(())
@@ -376,7 +376,7 @@ fn update_window(app: &AppHandle, surface: Surface) {
         }
         match native::update(app, surface, &notifications, &sidebar_tail_side(app)) {
             Ok(()) => return,
-            Err(error) => eprintln!("[agile-tiles] native notification renderer failed: {error}"),
+            Err(error) => eprintln!("[sideweave_] native notification renderer failed: {error}"),
         }
     }
 
@@ -410,7 +410,7 @@ fn update_window(app: &AppHandle, surface: Surface) {
         {
             Ok(window) => window,
             Err(error) => {
-                eprintln!("[agile-tiles] failed to create host notification window: {error}");
+                eprintln!("[sideweave_] failed to create host notification window: {error}");
                 return;
             }
         }
@@ -419,7 +419,7 @@ fn update_window(app: &AppHandle, surface: Surface) {
     #[cfg(windows)]
     if let Ok(hwnd) = window.hwnd() {
         if !unsafe { native::enforce_borderless(hwnd.0 as _) } {
-            eprintln!("[agile-tiles] failed to enforce borderless notification window styles");
+            eprintln!("[sideweave_] failed to enforce borderless notification window styles");
         }
     }
 
@@ -452,7 +452,7 @@ fn update_window(app: &AppHandle, surface: Surface) {
     let _ = window.show();
     #[cfg(windows)]
     if let Err(error) = schedule_borderless_show(app.clone(), surface.label()) {
-        eprintln!("[agile-tiles] failed to schedule borderless notification display: {error}");
+        eprintln!("[sideweave_] failed to schedule borderless notification display: {error}");
     }
 }
 

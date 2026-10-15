@@ -17,10 +17,10 @@ custom-protocol = ["tauri/custom-protocol"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-agile-tiles-plugin-api = { path = "../crates/plugin-api" }
-agile-tiles-plugin-sdk = { path = "../crates/plugin-sdk" }
-agile-tiles-plugin-runtime = { path = "../crates/plugin-runtime" }
-agile-tiles-plugin-ipc = { path = "../crates/plugin-ipc" }
+sideweave-plugin-api = { package = "sideweave-plugin-api", path = "../crates/plugin-api" }
+sideweave-plugin-sdk = { package = "sideweave-plugin-sdk", path = "../crates/plugin-sdk" }
+sideweave-plugin-runtime = { package = "sideweave-plugin-runtime", path = "../crates/plugin-runtime" }
+sideweave-plugin-ipc = { package = "sideweave-plugin-ipc", path = "../crates/plugin-ipc" }
 tauri = { version = "2", features = ["tray-icon", "image-ico", "unstable"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-notification = "2"

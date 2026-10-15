@@ -125,7 +125,7 @@ mod tests {
 
     #[test]
     fn protects_and_restores_a_secret_for_the_current_user() {
-        let plain = "agile-tiles-dpapi-test";
+        let plain = "sideweave_dpapi-test";
         let protected = protect_current_user(plain).expect("protect secret");
 
         assert_ne!(protected, plain);

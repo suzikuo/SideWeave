@@ -16,8 +16,6 @@
   "include": [
     "src/**/*.ts",
     "src/**/*.d.ts",
-    "src/**/*.vue",
-    "plugins/**/*.ts",
-    "plugins/**/*.vue"
+    "src/**/*.vue"
   ]
 }

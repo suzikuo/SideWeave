@@ -9,7 +9,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
-name = "agile-tiles-plugin-api"
+name = "sideweave-plugin-api"
 version = "0.1.0"
 dependencies = [
  "serde",
@@ -17,33 +17,33 @@ dependencies = [
 ]
 
 [[package]]
-name = "agile-tiles-plugin-app-launcher"
+name = "sideweave-plugin-app-launcher"
 version = "1.0.4"
 dependencies = [
- "agile-tiles-plugin-api",
- "agile-tiles-plugin-sdk",
+ "sideweave-plugin-api",
+ "sideweave-plugin-sdk",
  "serde",
  "serde_json",
  "uuid",
 ]
 
 [[package]]
-name = "agile-tiles-plugin-bookmarks"
+name = "sideweave-plugin-bookmarks"
 version = "1.0.6"
 dependencies = [
- "agile-tiles-plugin-api",
- "agile-tiles-plugin-sdk",
+ "sideweave-plugin-api",
+ "sideweave-plugin-sdk",
  "serde",
  "serde_json",
  "uuid",
 ]
 
 [[package]]
-name = "agile-tiles-plugin-clipboard"
+name = "sideweave-plugin-clipboard"
 version = "1.0.4"
 dependencies = [
- "agile-tiles-plugin-api",
- "agile-tiles-plugin-sdk",
+ "sideweave-plugin-api",
+ "sideweave-plugin-sdk",
  "chrono",
  "serde",
  "serde_json",
@@ -51,11 +51,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "agile-tiles-plugin-cloudflare-tunnel"
+name = "sideweave-plugin-cloudflare-tunnel"
 version = "1.0.8"
 dependencies = [
- "agile-tiles-plugin-api",
- "agile-tiles-plugin-sdk",
+ "sideweave-plugin-api",
+ "sideweave-plugin-sdk",
  "chrono",
  "serde",
  "serde_json",
@@ -63,47 +63,47 @@ dependencies = [
 ]
 
 [[package]]
-name = "agile-tiles-plugin-demo"
+name = "sideweave-plugin-demo"
 version = "0.1.0"
 dependencies = [
- "agile-tiles-plugin-api",
- "agile-tiles-plugin-sdk",
+ "sideweave-plugin-api",
+ "sideweave-plugin-sdk",
  "serde_json",
 ]
 
 [[package]]
-name = "agile-tiles-plugin-ipc"
+name = "sideweave-plugin-ipc"
 version = "0.1.0"
 dependencies = [
- "agile-tiles-plugin-api",
+ "sideweave-plugin-api",
 ]
 
 [[package]]
-name = "agile-tiles-plugin-notes"
+name = "sideweave-plugin-notes"
 version = "1.0.5"
 dependencies = [
- "agile-tiles-plugin-api",
- "agile-tiles-plugin-sdk",
+ "sideweave-plugin-api",
+ "sideweave-plugin-sdk",
  "serde",
  "serde_json",
  "uuid",
 ]
 
 [[package]]
-name = "agile-tiles-plugin-notification-lab"
+name = "sideweave-plugin-notification-lab"
 version = "0.1.0"
 dependencies = [
- "agile-tiles-plugin-api",
- "agile-tiles-plugin-sdk",
+ "sideweave-plugin-api",
+ "sideweave-plugin-sdk",
  "serde_json",
 ]
 
 [[package]]
-name = "agile-tiles-plugin-port-forward"
+name = "sideweave-plugin-port-forward"
 version = "1.0.7"
 dependencies = [
- "agile-tiles-plugin-api",
- "agile-tiles-plugin-sdk",
+ "sideweave-plugin-api",
+ "sideweave-plugin-sdk",
  "serde",
  "serde_json",
  "uuid",
@@ -111,22 +111,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "agile-tiles-plugin-runtime"
+name = "sideweave-plugin-runtime"
 version = "0.1.0"
 dependencies = [
- "agile-tiles-plugin-api",
- "agile-tiles-plugin-sdk",
+ "sideweave-plugin-api",
+ "sideweave-plugin-sdk",
  "serde",
  "serde_json",
  "windows-sys 0.59.0",
 ]
 
 [[package]]
-name = "agile-tiles-plugin-screenshot-core"
+name = "sideweave-plugin-screenshot-core"
 version = "0.3.7"
 dependencies = [
- "agile-tiles-plugin-api",
- "agile-tiles-plugin-ipc",
+ "sideweave-plugin-api",
+ "sideweave-plugin-ipc",
  "arboard",
  "base64 0.22.1",
  "encoding_rs",
@@ -145,20 +145,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "agile-tiles-plugin-sdk"
+name = "sideweave-plugin-sdk"
 version = "0.1.0"
 dependencies = [
- "agile-tiles-plugin-api",
+ "sideweave-plugin-api",
  "serde",
  "serde_json",
 ]
 
 [[package]]
-name = "agile-tiles-plugin-ssh-manager"
+name = "sideweave-plugin-ssh-manager"
 version = "1.0.7"
 dependencies = [
- "agile-tiles-plugin-api",
- "agile-tiles-plugin-sdk",
+ "sideweave-plugin-api",
+ "sideweave-plugin-sdk",
  "serde",
  "serde_json",
  "sha2",
@@ -166,23 +166,23 @@ dependencies = [
 ]
 
 [[package]]
-name = "agile-tiles-plugin-ssh-process"
+name = "sideweave-plugin-ssh-process"
 version = "0.1.0"
 dependencies = [
- "agile-tiles-plugin-api",
- "agile-tiles-plugin-ipc",
- "agile-tiles-plugin-sdk",
- "agile-tiles-plugin-ssh-manager",
+ "sideweave-plugin-api",
+ "sideweave-plugin-ipc",
+ "sideweave-plugin-sdk",
+ "sideweave-plugin-ssh-manager",
  "base64 0.22.1",
  "serde_json",
 ]
 
 [[package]]
-name = "agile-tiles-plugin-thiefbook"
+name = "sideweave-plugin-thiefbook"
 version = "1.0.17"
 dependencies = [
- "agile-tiles-plugin-api",
- "agile-tiles-plugin-sdk",
+ "sideweave-plugin-api",
+ "sideweave-plugin-sdk",
  "serde",
  "serde_json",
  "uuid",
@@ -190,11 +190,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "agile-tiles-plugin-time"
+name = "sideweave-plugin-time"
 version = "1.0.23"
 dependencies = [
- "agile-tiles-plugin-api",
- "agile-tiles-plugin-sdk",
+ "sideweave-plugin-api",
+ "sideweave-plugin-sdk",
  "chrono",
  "serde",
  "serde_json",
@@ -203,11 +203,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "agile-tiles-plugin-toolbox"
+name = "sideweave-plugin-toolbox"
 version = "1.0.3"
 dependencies = [
- "agile-tiles-plugin-api",
- "agile-tiles-plugin-sdk",
+ "sideweave-plugin-api",
+ "sideweave-plugin-sdk",
  "image",
  "rqrr",
  "serde_json",
@@ -4362,10 +4362,10 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 name = "sidebar-tauri"
 version = "1.0.0"
 dependencies = [
- "agile-tiles-plugin-api",
- "agile-tiles-plugin-ipc",
- "agile-tiles-plugin-runtime",
- "agile-tiles-plugin-sdk",
+ "sideweave-plugin-api",
+ "sideweave-plugin-ipc",
+ "sideweave-plugin-runtime",
+ "sideweave-plugin-sdk",
  "arboard",
  "base64 0.22.1",
  "chrono",

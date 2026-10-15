@@ -1,12 +1,12 @@
 #![cfg(windows)]
 
-use agile_tiles_plugin_api::{
+use sideweave_plugin_api::{
     ErrorCode, PluginError, PluginEvent, PluginHandshake, PluginId, PluginManifest, PluginRequest,
     PluginRequestKind, PluginResponse, PluginWireMessage, API_VERSION, DEFAULT_REQUEST_TIMEOUT_MS,
 };
-use agile_tiles_plugin_ipc::{FrameReader, FrameWriter};
-use agile_tiles_plugin_runtime::ExternalPlugin;
-use agile_tiles_plugin_sdk::{DesktopNotificationOptions, HostServices, NotificationOptions};
+use sideweave_plugin_ipc::{FrameReader, FrameWriter};
+use sideweave_plugin_runtime::ExternalPlugin;
+use sideweave_plugin_sdk::{DesktopNotificationOptions, HostServices, NotificationOptions};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use std::fs::File;
 use std::io;
@@ -102,7 +102,7 @@ impl ExternalPluginProcess {
             match child.try_wait() {
                 Ok(Some(status)) => {
                     eprintln!(
-                        "[agile-tiles] external plugin {} already exited: {}",
+                        "[sideweave_] external plugin {} already exited: {}",
                         self.plugin_id, status
                     );
                 }
@@ -112,7 +112,7 @@ impl ExternalPluginProcess {
                 }
                 Err(error) => {
                     eprintln!(
-                        "[agile-tiles] failed to query external plugin {}: {}",
+                        "[sideweave_] failed to query external plugin {}: {}",
                         self.plugin_id, error
                     );
                     let _ = child.kill();
@@ -306,8 +306,8 @@ impl ExternalTransport {
         request: &PluginRequest,
     ) -> Result<serde_json::Value, PluginError> {
         let method = request.method.as_deref().unwrap_or_default();
-        if let Some(permission) = agile_tiles_plugin_api::permissions::for_host_method(method) {
-            if !agile_tiles_plugin_api::permissions::is_declared(&self.permissions, permission) {
+        if let Some(permission) = sideweave_plugin_api::permissions::for_host_method(method) {
+            if !sideweave_plugin_api::permissions::is_declared(&self.permissions, permission) {
                 return Err(permission_denied(format!(
                     "plugin did not declare permission: {permission}"
                 )));
@@ -556,8 +556,8 @@ impl ExternalTransport {
                         })?;
                 }
                 PluginWireMessage::Event(event) => {
-                    let event_permission = agile_tiles_plugin_api::permissions::EVENT_PUBLISH;
-                    if agile_tiles_plugin_api::permissions::is_declared(
+                    let event_permission = sideweave_plugin_api::permissions::EVENT_PUBLISH;
+                    if sideweave_plugin_api::permissions::is_declared(
                         &self.permissions,
                         event_permission,
                     ) && matches!(
@@ -585,7 +585,7 @@ impl ExternalPlugin for ExternalPluginProcess {
             Ok(response) => Ok(response),
             Err(error) if is_recoverable_ipc_error(&error) => {
                 eprintln!(
-                    "[agile-tiles] external plugin {} IPC disconnected; restarting once: {}",
+                    "[sideweave_] external plugin {} IPC disconnected; restarting once: {}",
                     self.plugin_id, error.message
                 );
                 self.stop_process();
@@ -683,7 +683,7 @@ fn invalid_request(message: String) -> PluginError {
     }
 }
 
-fn host_error(error: agile_tiles_plugin_sdk::HostError) -> PluginError {
+fn host_error(error: sideweave_plugin_sdk::HostError) -> PluginError {
     PluginError {
         code: ErrorCode::Internal,
         message: error.message,

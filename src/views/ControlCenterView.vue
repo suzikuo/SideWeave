@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
+import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { getCurrent, onOpenUrl } from '@tauri-apps/plugin-deep-link'
 import HotkeyRecorder from '../ui/HotkeyRecorder.vue'
 import Icon from '../ui/Icon.vue'
@@ -8,6 +9,7 @@ import RangeSlider from '../ui/RangeSlider.vue'
 import Toast from '../ui/Toast.vue'
 import {
   getState,
+  EVENTS,
   openDataDir,
   restartApp,
   setPluginEnabled,
@@ -23,7 +25,7 @@ import {
   backupImport,
   getPerformanceStatus
 } from '../lib/api'
-import { marketInstalled, pluginRegistryList } from '../lib/marketApi'
+import { marketInstalled, marketRefresh, pluginRegistryList } from '../lib/marketApi'
 import type { RuntimePluginInfo } from '../lib/marketApi'
 import { applySkinWithRecommendedOpacity, OPACITY_SETTING_KEYS, resolveSkinOpacityDefaults, type InstalledSkinAppearance } from '../lib/skinAppearance'
 import PluginCenterView from './PluginCenterView.vue'
@@ -501,12 +503,83 @@ async function onOpenDataDir() {
 type UpdateState = 'idle' | 'checking' | 'available' | 'downloading' | 'latest'
 const updateState = ref<UpdateState>('idle')
 const updateVersion = ref('')
+interface UpdateProgress {
+  downloaded: number
+  total: number | null
+  percent: number | null
+  phase: 'download' | 'install'
+}
+const updateProgress = ref<UpdateProgress | null>(null)
+let unlistenUpdateProgress: UnlistenFn | undefined
+const MIRROR_PRESETS = [
+  'https://ghfast.top/https://',
+  'https://ghproxy.net/https://',
+  'https://gh-proxy.org/https://'
+]
+const githubMirrorValue = computed(() => settings.value?.general.github_mirror ?? '')
+const customGithubMirror = ref('')
+const customGithubMirrorSelected = ref(false)
+const selectedGithubMirror = computed(() => {
+  if (customGithubMirrorSelected.value) return 'custom'
+  const value = githubMirrorValue.value
+  return !value || MIRROR_PRESETS.includes(value) ? value : 'custom'
+})
+const customGithubMirrorActive = computed(() => selectedGithubMirror.value === 'custom')
+watch(githubMirrorValue, (value) => {
+  if (value && !MIRROR_PRESETS.includes(value)) customGithubMirror.value = value
+}, { immediate: true })
+
+async function applyGithubMirror(value: string) {
+  await change('general', 'github_mirror', value)
+  if (settingsRef.value?.general.github_mirror === value) {
+    showToast('GitHub 镜像已保存，正在刷新市场目录', 'success')
+    void marketRefresh().catch((error) => showToast(String(error), 'error'))
+  }
+}
+
+function onGithubMirrorSelect(event: Event) {
+  const value = (event.target as HTMLSelectElement).value
+  if (value === 'custom') {
+    customGithubMirrorSelected.value = true
+    if (!customGithubMirror.value) customGithubMirror.value = 'https://'
+    return
+  }
+  customGithubMirrorSelected.value = false
+  void applyGithubMirror(value)
+}
+
+async function saveCustomGithubMirror() {
+  let value = customGithubMirror.value.trim()
+  if (value && !value.endsWith('/')) value += '/'
+  if (!value.startsWith('https://')) {
+    showToast('自定义镜像前缀必须使用 HTTPS', 'error')
+    return
+  }
+  await applyGithubMirror(value)
+}
+
+const updateProgressLabel = computed(() => {
+  const progress = updateProgress.value
+  if (!progress) return '正在连接更新服务器…'
+  if (progress.phase === 'install') return '下载完成，正在启动安装器…'
+  const downloadedMb = (progress.downloaded / (1024 * 1024)).toFixed(1)
+  if (progress.total && progress.total > 0) {
+    const totalMb = (progress.total / (1024 * 1024)).toFixed(1)
+    return `${progress.percent ?? 0}% · ${downloadedMb} / ${totalMb} MB`
+  }
+  return `已下载 ${downloadedMb} MB`
+})
+const updateProgressPercent = computed(() => {
+  const percent = updateProgress.value?.percent
+  return typeof percent === 'number' ? Math.max(0, Math.min(100, percent)) : null
+})
 /** 被忽略的版本号（空 = 无） */
 const ignoredVersion = ref('')
 
 async function onUpdateAction() {
   if (updateState.value === 'available') {
     updateState.value = 'downloading'
+    updateProgress.value = null
     try {
       await updateInstall()
       // 安装器拉起后应用会自行退出；正常不会执行到这里
@@ -655,11 +728,17 @@ async function routeInstallDeepLinks(urls: string[]) {
 }
 
 onMounted(async () => {
+  unlistenUpdateProgress = await listen<UpdateProgress>(EVENTS.updateProgress, (event) => {
+    updateProgress.value = event.payload
+  }).catch(() => undefined)
   unlistenDeepLinks = await onOpenUrl((urls) => { void routeInstallDeepLinks(urls) }).catch(() => null)
   const startUrls = await getCurrent().catch(() => null)
   if (startUrls?.length) await routeInstallDeepLinks(startUrls)
 })
-onUnmounted(() => unlistenDeepLinks?.())
+onUnmounted(() => {
+  unlistenDeepLinks?.()
+  unlistenUpdateProgress?.()
+})
 
 </script>
 
@@ -1311,6 +1390,37 @@ onUnmounted(() => unlistenDeepLinks?.())
             <button class="btn" @click="onRestartApp"><Icon name="refresh" :size="14" /> 重启</button>
           </div>
 
+          <h3 class="group-label">GitHub 网络</h3>
+          <div class="card row-card">
+            <div class="row-main">
+              <div class="row-title">GitHub 镜像</div>
+              <div class="row-desc">用于市场目录、插件包和应用更新。镜像可能影响目录内容，请只用信任的服务；安装包仍会按发布者密钥验签，应用更新使用内置公钥验签。</div>
+            </div>
+            <select class="mirror-select" :value="selectedGithubMirror" @change="onGithubMirrorSelect">
+              <option value="">官方直连</option>
+              <option value="https://ghfast.top/https://">ghfast.top</option>
+              <option value="https://ghproxy.net/https://">ghproxy.net</option>
+              <option value="https://gh-proxy.org/https://">gh-proxy.org</option>
+              <option value="custom">自定义前缀…</option>
+            </select>
+          </div>
+          <div v-if="customGithubMirrorActive" class="card row-card mirror-custom-card">
+            <div class="row-main">
+              <div class="row-title">自定义镜像前缀</div>
+              <div class="row-desc">输入 HTTPS 代理前缀，例如 https://mirror.example/https://</div>
+              <input
+                v-model="customGithubMirror"
+                class="mirror-input"
+                type="url"
+                autocomplete="off"
+                spellcheck="false"
+                aria-label="自定义 GitHub 镜像前缀"
+                placeholder="https://mirror.example/https://"
+              />
+            </div>
+            <button class="btn accent" @click="saveCustomGithubMirror">保存</button>
+          </div>
+
           <!-- 在线更新 -->
           <div class="card row-card">
             <div class="row-main">
@@ -1322,13 +1432,29 @@ onUnmounted(() => unlistenDeepLinks?.())
                     : updateState === 'checking'
                       ? '正在检查更新…'
                       : updateState === 'downloading'
-                        ? '正在下载更新，完成后将自动安装并重启…'
+                        ? '正在下载更新，完成后自动安装并重启…'
                         : updateState === 'latest'
                           ? ignoredVersion
                             ? `已忽略 v${ignoredVersion}，撤销后可再次提示`
                             : '当前已是最新版本'
                           : `发现新版本 ${updateVersion}，可下载安装`
                 }}
+              </div>
+              <div v-if="updateState === 'downloading'" class="update-progress">
+                <div
+                  class="update-progress-track"
+                  role="progressbar"
+                  :aria-valuenow="updateProgressPercent ?? undefined"
+                  aria-valuemin="0"
+                  aria-valuemax="100"
+                  :aria-label="`应用更新进度：${updateProgressLabel}`"
+                >
+                  <span
+                    :class="{ indeterminate: updateProgressPercent === null }"
+                    :style="updateProgressPercent === null ? undefined : { width: `${updateProgressPercent}%` }"
+                  />
+                </div>
+                <small>{{ updateProgressLabel }}</small>
               </div>
             </div>
             <div class="update-actions">
@@ -2042,6 +2168,64 @@ section.fill h2 {
 }
 .update-actions .btn {
   white-space: nowrap;
+}
+
+.mirror-select,
+.mirror-input {
+  min-width: 210px;
+  max-width: 420px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+.mirror-custom-card .row-main {
+  flex: 1;
+  min-width: 0;
+}
+.mirror-input {
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 8px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+.update-progress {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 8px;
+}
+.update-progress-track {
+  position: relative;
+  overflow: hidden;
+  width: min(260px, 45vw);
+  height: 6px;
+  flex: none;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface));
+}
+.update-progress-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 120ms linear;
+}
+.update-progress-track span.indeterminate {
+  width: 35%;
+  animation: update-progress-slide 1.1s ease-in-out infinite alternate;
+}
+.update-progress small {
+  color: var(--text-muted);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+@keyframes update-progress-slide {
+  from { transform: translateX(0); }
+  to { transform: translateX(185%); }
 }
 
 .opacity-reset-button {

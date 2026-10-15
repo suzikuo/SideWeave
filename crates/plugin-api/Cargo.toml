@@ -1,8 +1,8 @@
 [package]
-name = "agile-tiles-plugin-api"
+name = "sideweave-plugin-api"
 version = "0.1.0"
 edition = "2021"
-description = "Wire-level protocol types for Agile Tiles extensions"
+description = "Wire-level protocol types for SideWeave extensions"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
