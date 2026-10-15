@@ -44,7 +44,6 @@ pub(crate) const SIDEBAR: &str = "sidebar";
 const DETAIL: &str = "detail";
 const DETAIL_W: i32 = 580;
 const DETAIL_H: i32 = 860;
-const DETAIL_COMPACT_H: f64 = 52.0;
 const GAP: i32 = 8;
 const SIDEBAR_COLLAPSE_DURATION: Duration = Duration::from_millis(340);
 const SIDEBAR_COLLAPSE_FRAME: Duration = Duration::from_millis(16);
@@ -108,8 +107,6 @@ struct Host {
     /// 收起几何落地代数：延迟落地期间有 expand/新 collapse 则取消
     collapse_gen: AtomicU64,
     /// 详情卡尺寸只由 Rust 设定一次，其后尊重用户手动调整
-    /// 详情窗口是否处于应用内紧凑态；紧凑态不等同于原生最小化。
-    detail_compact: AtomicBool,
     /// 详情窗口销毁代数：关闭后延迟 30 秒销毁；若 30 秒内重新打开则递增取消
     detail_destroy_gen: AtomicU64,
     /// 侧边栏当前是否展开。
@@ -439,8 +436,8 @@ fn create_detail_window<R: tauri::Runtime>(
         .decorations(false)
         .transparent(true)
         .shadow(false)
-        .always_on_top(true)
-        .skip_taskbar(true)
+        .always_on_top(false)
+        .skip_taskbar(false)
         .resizable(true)
         .visible(false);
     if let Some(script) = initial_script.as_deref() {
@@ -533,7 +530,10 @@ pub(crate) fn with_detail_not_always_on_top<R: tauri::Runtime, T>(
     action: impl FnOnce() -> T,
 ) -> T {
     let detail = detail_window(app);
-    let restore_top = current_surface(app) != MainSurface::Control;
+    let restore_top = detail
+        .as_ref()
+        .and_then(|window| window.is_always_on_top().ok())
+        .unwrap_or(false);
     let detail_visible = detail
         .as_ref()
         .is_some_and(|window| window.is_visible().unwrap_or(false));
@@ -546,7 +546,7 @@ pub(crate) fn with_detail_not_always_on_top<R: tauri::Runtime, T>(
     let result = action();
     if detail_visible && restore_top {
         if let Some(window) = detail.as_ref() {
-            let _ = window.set_always_on_top(true);
+            let _ = window.set_always_on_top(restore_top);
             let _ = window.show();
             let _ = window.set_focus();
         }
@@ -610,8 +610,6 @@ fn close_main_surface<R: tauri::Runtime>(app: &AppHandle<R>) {
         MainSurface::Control => save_control_geom(app, true),
         MainSurface::Sidebar => {}
     }
-    host(app).detail_compact.store(false, Ordering::SeqCst);
-    let _ = app.emit_to(DETAIL, "detail://compact", false);
     set_main_surface(app, MainSurface::Sidebar);
     if let Some(window) = detail_window(app) {
         let _ = window.hide();
@@ -844,8 +842,7 @@ fn save_detail_geom<R: tauri::Runtime>(app: &AppHandle<R>, force: bool) {
     let Some(win) = detail_window(app) else {
         return;
     };
-    if host(app).detail_compact.load(Ordering::SeqCst)
-        || !win.is_visible().unwrap_or(false)
+    if !win.is_visible().unwrap_or(false)
         || win.is_minimized().unwrap_or(false)
     {
         return;
@@ -869,57 +866,13 @@ fn save_detail_geom<R: tauri::Runtime>(app: &AppHandle<R>, force: bool) {
     let _ = paths::save_json_atomic(&detail_geom_path(app), &v);
 }
 
-/// 在完整详情页和仅保留标题栏的紧凑态之间切换。
-/// 紧凑态不会写入几何记忆，展开时恢复最近一次完整窗口的位置和尺寸。
-fn set_detail_compact<R: tauri::Runtime>(
-    app: &AppHandle<R>,
-    compact: bool,
-) -> Result<bool, String> {
-    if current_surface(app) != MainSurface::Detail {
-        return Err("详情页未打开".to_string());
-    }
-    let win = detail_window(app).ok_or_else(|| "详情窗口不存在".to_string())?;
-    let current = host(app).detail_compact.load(Ordering::SeqCst);
-    if current == compact {
-        return Ok(compact);
-    }
-
-    if compact {
-        save_detail_geom(app, true);
-        host(app).detail_compact.store(true, Ordering::SeqCst);
-        let current_size = win.outer_size().map_err(|error| error.to_string())?;
-        let scale = monitor_scale(app) * interface_scale(app);
-        let height = (DETAIL_COMPACT_H * scale).round().max(40.0) as u32;
-        win.set_size(PhysicalSize::new(current_size.width, height))
-            .map_err(|error| format!("详情窗口进入紧凑态失败: {error}"))?;
-    } else {
-        let geometry = load_detail_geom(app).or_else(|| {
-            let settings = host(app).settings_clone();
-            let area = platform::work_area();
-            let scale = monitor_scale(app) * settings.appearance.interface_scale.clamp(0.7, 1.6);
-            let (position, size) = detail_geometry(&area, &settings, scale);
-            Some((position.x, position.y, size.width, size.height))
-        });
-        let Some((x, y, width, height)) = geometry else {
-            return Err("详情窗口完整尺寸不可用".to_string());
-        };
-        win.set_position(PhysicalPosition::new(x, y))
-            .map_err(|error| format!("详情窗口恢复位置失败: {error}"))?;
-        win.set_size(PhysicalSize::new(width, height))
-            .map_err(|error| format!("详情窗口恢复尺寸失败: {error}"))?;
-        host(app).detail_compact.store(false, Ordering::SeqCst);
-        save_detail_geom(app, true);
-    }
-
-    let _ = app.emit("detail://compact", compact);
-    Ok(compact)
-}
-
 fn show_detail<R: tauri::Runtime>(app: &AppHandle<R>, page: &str) -> Result<(), String> {
     if current_surface(app) == MainSurface::Detail
         && detail_window(app)
             .as_ref()
-            .is_some_and(|window| window.is_visible().unwrap_or(false))
+            .is_some_and(|window| {
+                window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(false)
+            })
         && host(app).detail_page.lock().unwrap().as_str() == page
     {
         close_main_surface(app);
@@ -935,7 +888,6 @@ fn show_detail<R: tauri::Runtime>(app: &AppHandle<R>, page: &str) -> Result<(), 
     }
     expand(app, false);
     *host(app).detail_page.lock().unwrap() = page.to_string();
-    set_main_surface(app, MainSurface::Detail);
     let window = match ensure_detail_window(app)? {
         Some(window) => window,
         None => return Ok(()),
@@ -950,13 +902,15 @@ fn show_detail<R: tauri::Runtime>(app: &AppHandle<R>, page: &str) -> Result<(), 
     let Some((x, y, width, height)) = geometry else {
         return Err("详情页尺寸不可用".to_string());
     };
-    host(app).detail_compact.store(false, Ordering::SeqCst);
     let _ = window.set_resizable(true);
     let _ = window.set_ignore_cursor_events(false);
     #[cfg(windows)]
     if let Ok(hwnd) = window.hwnd() {
         let _ = platform::set_clickthrough(hwnd.0, false);
     }
+    let _ = window.set_title("SideWeave — 详情");
+    let _ = window.set_always_on_top(false);
+    set_main_surface(app, MainSurface::Detail);
     host(app).geometry_transition.store(true, Ordering::SeqCst);
     window
         .set_position(PhysicalPosition::new(x, y))
@@ -969,7 +923,6 @@ fn show_detail<R: tauri::Runtime>(app: &AppHandle<R>, page: &str) -> Result<(), 
     let hash = serde_json::to_string(&format!("#/{page}"))
         .map_err(|error| format!("详情页路由无效: {error}"))?;
     let _ = window.eval(&format!("window.location.hash = {hash};"));
-    let _ = window.set_always_on_top(true);
     let _ = window.show();
     let _ = window.unminimize();
     let _ = window.set_focus();
@@ -1259,6 +1212,8 @@ fn set_setting(
         && [
             "render_mode",
             "background_opacity",
+            "desktop_background_opacity",
+            "bubble_background_opacity",
             "desktop_background_color",
             "bubble_background_color",
         ]
@@ -1426,17 +1381,15 @@ fn open_control_center_sync<R: tauri::Runtime>(app: &AppHandle<R>) -> Result<(),
     if current_surface(app) == MainSurface::Control {
         if let Some(window) = detail_window(app) {
             let _ = window.show();
+            let _ = window.unminimize();
             let _ = window.set_focus();
         }
         return Ok(());
     }
     if current_surface(app) == MainSurface::Detail {
         save_detail_geom(app, true);
-        host(app).detail_compact.store(false, Ordering::SeqCst);
-        let _ = app.emit_to(DETAIL, "detail://compact", false);
     }
     expand(app, false);
-    set_main_surface(app, MainSurface::Control);
     let window = match ensure_detail_window(app)? {
         Some(window) => window,
         None => return Ok(()),
@@ -1458,6 +1411,9 @@ fn open_control_center_sync<R: tauri::Runtime>(app: &AppHandle<R>) -> Result<(),
     let Some((x, y, width, height)) = geometry else {
         return Err("控制中心尺寸不可用".to_string());
     };
+    let settings = host(app).settings_clone();
+    let _ = window.set_title("SideWeave — 控制中心");
+    let _ = window.set_always_on_top(settings.general.control_center_always_on_top);
     set_main_surface(app, MainSurface::Control);
     let _ = window.set_resizable(true);
     let _ = window.set_ignore_cursor_events(false);
@@ -1465,7 +1421,6 @@ fn open_control_center_sync<R: tauri::Runtime>(app: &AppHandle<R>) -> Result<(),
     if let Ok(hwnd) = window.hwnd() {
         let _ = platform::set_clickthrough(hwnd.0, false);
     }
-    let _ = window.set_always_on_top(false);
     window
         .set_position(PhysicalPosition::new(x, y))
         .map_err(|error| format!("控制中心位置设置失败: {error}"))?;
@@ -1585,12 +1540,6 @@ async fn open_detail(app: AppHandle, page: String) -> Result<(), String> {
 fn close_detail(app: AppHandle) {
     close_main_surface(&app);
     // 隐藏前强制落盘最后一次几何（绕过 500ms 节流，避免末次调整丢失）
-}
-
-#[tauri::command]
-fn minimize_detail(app: AppHandle) -> Result<bool, String> {
-    let compact = !host(&app).detail_compact.load(Ordering::SeqCst);
-    set_detail_compact(&app, compact)
 }
 
 #[tauri::command]
@@ -2387,7 +2336,6 @@ pub fn run() {
             plugin_services: Mutex::new(None),
             hover_token: Mutex::new(0),
             collapse_gen: AtomicU64::new(0),
-            detail_compact: AtomicBool::new(false),
             detail_destroy_gen: AtomicU64::new(0),
             expanded: AtomicBool::new(true),
             detail_page: Mutex::new(String::new()),
@@ -2619,7 +2567,6 @@ pub fn run() {
             open_detail,
             detail_content_ready,
             close_detail,
-            minimize_detail,
             toggle_sidebar,
             sidebar_hover_enter,
             sidebar_collapse_if_unhovered,

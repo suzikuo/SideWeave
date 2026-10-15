@@ -105,6 +105,8 @@ export interface PluginUi {
   entry: string
   kind?: 'html' | 'vue' | 'react'
   assetRoot: string
+  /** Use the plugin's own detail layout and hide the host identity header. */
+  chrome?: 'host' | 'plugin'
   initialWidth?: number
   initialHeight?: number
   minWidth?: number

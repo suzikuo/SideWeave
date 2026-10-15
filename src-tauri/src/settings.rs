@@ -12,6 +12,7 @@ pub struct General {
     pub enable_mouse_hover: bool,
     pub auto_hide_delay: u32,
     pub hover_preview_delay: u32,
+    pub control_center_always_on_top: bool,
     pub performance_profile: String,
     /// Optional HTTPS prefix for GitHub proxy services. Empty means use GitHub directly.
     pub github_mirror: String,
@@ -24,6 +25,7 @@ impl Default for General {
             enable_mouse_hover: true,
             auto_hide_delay: 1000,
             hover_preview_delay: 350,
+            control_center_always_on_top: false,
             performance_profile: "balanced".into(),
             github_mirror: String::new(),
         }
@@ -152,6 +154,23 @@ pub fn load_persisted(value: JsonValue) -> LoadedSettings {
             appearance.entry("detail_image_opacity").or_insert(value);
         }
     }
+    if let Some(notifications) = value
+        .get_mut("notifications")
+        .and_then(JsonValue::as_object_mut)
+    {
+        let legacy_opacity = notifications
+            .get("background_opacity")
+            .and_then(JsonValue::as_f64)
+            .map(|opacity| JsonValue::from(opacity.clamp(0.0, 1.0)));
+        if let Some(opacity) = legacy_opacity {
+            notifications
+                .entry("desktop_background_opacity")
+                .or_insert_with(|| opacity.clone());
+            notifications
+                .entry("bubble_background_opacity")
+                .or_insert(opacity);
+        }
+    }
     let mut settings: Settings = serde_json::from_value(value).unwrap_or_default();
     settings.general.github_mirror = validate_github_mirror(&settings.general.github_mirror)
         .unwrap_or_default();
@@ -185,8 +204,13 @@ pub struct Settings {
 pub struct NotificationSettings {
     /// `web` supports installed skin CSS; `native` uses the host's Windows drawing surface.
     pub render_mode: String,
-    /// Background opacity from 0 (transparent) to 1 (opaque).
+    /// Legacy shared opacity. Read for migration, then omit from persisted settings.
+    #[serde(skip_serializing)]
     pub background_opacity: f64,
+    /// Background opacity from 0 (transparent) to 1 (opaque).
+    pub desktop_background_opacity: f64,
+    /// Background opacity from 0 (transparent) to 1 (opaque).
+    pub bubble_background_opacity: f64,
     /// Empty values let the active skin choose the web background color.
     pub desktop_background_color: String,
     pub bubble_background_color: String,
@@ -197,6 +221,8 @@ impl Default for NotificationSettings {
         Self {
             render_mode: "web".into(),
             background_opacity: 0.92,
+            desktop_background_opacity: 0.92,
+            bubble_background_opacity: 0.92,
             desktop_background_color: String::new(),
             bubble_background_color: String::new(),
         }
@@ -318,6 +344,9 @@ pub fn apply_setting(
         ("general", "hover_preview_delay") => {
             s.general.hover_preview_delay = as_u32_clamped(v, 50, 5000)?;
         }
+        ("general", "control_center_always_on_top") => {
+            s.general.control_center_always_on_top = as_bool(v)?;
+        }
         ("general", "performance_profile") => {
             s.general.performance_profile =
                 as_enum(v, &["eco", "balanced", "performance", "auto"])?;
@@ -330,7 +359,16 @@ pub fn apply_setting(
             s.notifications.render_mode = as_enum(v, &["web", "native"])?;
         }
         ("notifications", "background_opacity") => {
-            s.notifications.background_opacity = as_f64_clamped(v, 0.65, 1.0)?;
+            let opacity = as_f64_clamped(v, 0.0, 1.0)?;
+            s.notifications.background_opacity = opacity;
+            s.notifications.desktop_background_opacity = opacity;
+            s.notifications.bubble_background_opacity = opacity;
+        }
+        ("notifications", "desktop_background_opacity") => {
+            s.notifications.desktop_background_opacity = as_f64_clamped(v, 0.0, 1.0)?;
+        }
+        ("notifications", "bubble_background_opacity") => {
+            s.notifications.bubble_background_opacity = as_f64_clamped(v, 0.0, 1.0)?;
         }
         ("notifications", "desktop_background_color") => {
             s.notifications.desktop_background_color = as_optional_color(v)?;

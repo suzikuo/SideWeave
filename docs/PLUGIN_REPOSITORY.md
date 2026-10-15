@@ -12,7 +12,7 @@ The standalone starter repository is `suzikuo/SideWeave-plugin-template`: its ro
 
 ## Package manifest
 
-Plugin manifests declare `manifestVersion`, `apiVersion`, `type`, `runtime`, `publisher`, `key_id`, `capabilities`, and UI paths. Native plugins also set `requires_trust: true`. Skin manifests use `type: "skin"`, `skinUi` entry paths and `appearanceDefaults`; skins do not declare executable capabilities or require native trust. The host continues to accept the legacy `permissions` field for older plugin packages.
+Plugin manifests declare `manifestVersion`, `apiVersion`, `type`, `runtime`, `publisher`, `key_id`, `capabilities`, and UI paths. Set `ui.chrome` to `"plugin"` when the plugin should hide the host identity header and own its detail layout; the host retains close and minimize controls. Native plugins also set `requires_trust: true`. Skin manifests use `type: "skin"`, `skinUi` entry paths and `appearanceDefaults`; skins do not declare executable capabilities or require native trust. The host continues to accept the legacy `permissions` field for older plugin packages.
 
 Every package ZIP places `manifest.json` at its root. `ui.entry`, `ui.assetRoot`, and `backend` must be safe paths within the archive. UI assets use relative URLs such as Vite's `base: './'`.
 

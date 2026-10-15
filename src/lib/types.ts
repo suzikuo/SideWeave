@@ -26,6 +26,7 @@ export interface GeneralSettings {
   enable_mouse_hover: boolean
   auto_hide_delay: number
   hover_preview_delay: number
+  control_center_always_on_top: boolean
   performance_profile?: PerformanceProfile
   github_mirror?: string
 }
@@ -63,7 +64,8 @@ export interface PluginsSettings {
 
 export interface NotificationSettings {
   render_mode: 'web' | 'native'
-  background_opacity: number
+  desktop_background_opacity: number
+  bubble_background_opacity: number
   desktop_background_color: string
   bubble_background_color: string
 }

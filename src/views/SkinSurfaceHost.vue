@@ -8,7 +8,6 @@ import {
   backupImport,
   closeDetail,
   getState,
-  minimizeDetail,
   openControlCenter,
   openDataDir,
   openExternalUrl,
@@ -282,7 +281,7 @@ async function dispatch(action: string, payload: Record<string, unknown>): Promi
       window.setTimeout(() => emit('showNativeUi'), 0)
       return true
     case 'window.closeDetail': return closeDetail()
-    case 'window.minimizeDetail': return minimizeDetail()
+    case 'window.minimizeDetail': return currentWindow.minimize()
     case 'window.toggleSidebar': return toggleSidebar()
     case 'window.startDragging': return currentWindow.startDragging()
     case 'window.startResizeDragging': {

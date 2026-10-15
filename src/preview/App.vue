@@ -1,11 +1,10 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import {
   EVENTS,
   getCurrentPreview,
   getState,
-  openPluginDetail,
   previewHideNow,
   previewWindowEnter,
   previewWindowLeave,
@@ -23,6 +22,9 @@ const preview = ref<PreviewPayload | null>(null)
 const settings = ref<Settings | null>(null)
 const actionLoading = ref<string | null>(null)
 const actionError = ref<string>('')
+const visibleActions = computed(() =>
+  preview.value?.actions?.filter((action) => Boolean(action.method)) ?? []
+)
 interface CustomPreviewSlot {
   pluginId: string
   customUrl: string
@@ -217,16 +219,7 @@ async function onMessage(e: MessageEvent) {
 
 async function handleAction(action: PreviewAction) {
   if (!preview.value) return
-
-  if (!action.method || action.id === 'open') {
-    // 宿主打开插件面板，并立即收起预览卡片
-    const pid = preview.value.pluginId
-    await previewHideNow().catch(() => {})
-    await openPluginDetail(pid).catch((err) => {
-      console.error('打开插件详情失败:', err)
-    })
-    return
-  }
+  if (!action.method) return
 
   // 插件通用自定义 Action 调用
   try {
@@ -452,9 +445,9 @@ onUnmounted(() => {
         </div>
 
         <!-- 底部快捷操作原语 -->
-        <div v-if="preview.actions && preview.actions.length > 0" class="actions-bar">
+        <div v-if="visibleActions.length > 0" class="actions-bar">
           <button
-            v-for="action in preview.actions"
+            v-for="action in visibleActions"
             :key="action.id"
             class="action-btn"
             :class="{
@@ -506,7 +499,7 @@ onUnmounted(() => {
   padding: 12px 14px;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 8px;
   animation: card-appear 0.18s cubic-bezier(0.16, 1, 0.3, 1);
   overflow: hidden;

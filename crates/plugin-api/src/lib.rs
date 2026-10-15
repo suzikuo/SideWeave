@@ -167,6 +167,13 @@ pub enum PluginUiKind {
     React,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginUiChrome {
+    Host,
+    Plugin,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 #[serde(rename_all = "camelCase")]
@@ -174,6 +181,7 @@ pub struct PluginUi {
     pub entry: String,
     pub kind: Option<PluginUiKind>,
     pub asset_root: String,
+    pub chrome: Option<PluginUiChrome>,
     pub initial_width: Option<u32>,
     pub initial_height: Option<u32>,
     pub min_width: Option<u32>,
@@ -185,6 +193,7 @@ pub struct PluginUi {
 #[serde(rename_all = "camelCase")]
 pub struct PluginHoverPreview {
     pub width: Option<u32>,
+    /// Maximum height for a host-rendered data preview; custom `entry` previews use this as their viewport height.
     pub height: Option<u32>,
     pub data_method: Option<String>,
     pub entry: Option<String>,

@@ -1,8 +1,9 @@
 <script setup lang="ts">
 /** 插件中心：浏览 SideWeave 市场，安装 / 更新 / 打开 / 移除独立插件。 */
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import Icon from '../ui/Icon.vue'
 import Toast from '../ui/Toast.vue'
+import MarketItemDetail from './MarketItemDetail.vue'
 import {
   marketInstall,
   marketInstallInfo,
@@ -26,6 +27,7 @@ const error = ref('')
 const installing = ref<Record<string, boolean>>({})
 /** 两次点击确认移除（id → true） */
 const confirmRemove = ref<Record<string, boolean>>({})
+const selectedItem = ref<MarketItem | null>(null)
 
 const toast = ref('')
 const toastKind = ref<'info' | 'error' | 'success'>('info')
@@ -216,8 +218,48 @@ onUnmounted(() => window.removeEventListener('sideweave:market-install', onDeepL
 function onDeepLinkInstall(event: Event) {
   const detail = (event as CustomEvent<{ kind: string; id: string }>).detail
   if (detail?.kind === KIND && /^[a-z0-9_-]{1,64}$/.test(detail.id)) {
-    void installById(detail.id, detail.id)
+    void openDeepLinkInstall(detail.id)
   }
+}
+
+function itemFromInstalled(item: InstalledItem): MarketItem {
+  return {
+    id: item.id,
+    name: item.name,
+    description: item.description,
+    author: item.author,
+    publisher: '',
+    type: item.runtime === 'web_sandbox' ? 'web' : 'native',
+    repository: '',
+    verified: false,
+    latest: item.updateVersion || item.version,
+    capabilities: [],
+    versions: []
+  }
+}
+
+function openDetails(item: MarketItem, confirmInstall = false) {
+  selectedItem.value = item
+  if (confirmInstall) {
+    void nextTick(() => installById(item.id, item.name))
+  }
+}
+
+function openInstalledDetails(item: InstalledItem) {
+  openDetails(catalogItems.value.find((entry) => entry.id === item.id) ?? itemFromInstalled(item))
+}
+
+async function openDeepLinkInstall(id: string) {
+  let item = catalogItems.value.find((entry) => entry.id === id)
+  if (!item) {
+    await refreshMarket(false)
+    item = catalogItems.value.find((entry) => entry.id === id)
+  }
+  if (!item) {
+    showToast(`市场中没有找到插件「${id}」`, 'error')
+    return
+  }
+  openDetails(item, true)
 }
 
 /** 安装 / 更新（同一命令，下载耗时） */
@@ -258,7 +300,7 @@ async function installById(id: string, name: string) {
 }
 
 function install(item: MarketItem) {
-  void installById(item.id, item.name)
+  openDetails(item, true)
 }
 
 /** 已安装列表的更新入口 */
@@ -268,12 +310,11 @@ function updateInstalled(item: InstalledItem) {
 
 function updateCatalogItem(item: MarketItem) {
   const current = installedOf(item.id)
-  if (current?.updateVersion) updateInstalled(current)
+  if (current?.updateVersion) openDetails(item, true)
 }
 
 function openCatalogItem(item: MarketItem) {
-  const current = installedOf(item.id)
-  if (current) void openInstalled(current)
+  openDetails(item)
 }
 
 /** 打开已安装插件：所有运行时统一交给详情宿主解析。 */
@@ -283,6 +324,16 @@ async function openInstalled(it: InstalledItem) {
   } catch (e) {
     showToast(String(e), 'error')
   }
+}
+
+function openSelectedPlugin() {
+  const item = selectedItem.value && installedOf(selectedItem.value.id)
+  if (item) void openInstalled(item)
+}
+
+function removeSelectedPlugin() {
+  const item = selectedItem.value && installedOf(selectedItem.value.id)
+  if (item) void removeInstalled(item)
 }
 
 /** 移除（两次点击确认） */
@@ -307,6 +358,21 @@ async function removeInstalled(item: InstalledItem) {
 
 <template>
   <div class="market">
+    <MarketItemDetail
+      v-if="selectedItem"
+      :item="selectedItem"
+      :kind="KIND"
+      :installed="installedOf(selectedItem.id)"
+      :busy="isInstalling(selectedItem.id)"
+      :remove-confirm="confirmRemove[selectedItem.id]"
+      @back="selectedItem = null"
+      @install="install(selectedItem)"
+      @open="openSelectedPlugin"
+      @update="updateCatalogItem(selectedItem)"
+      @remove="removeSelectedPlugin"
+      @open-repository-error="showToast($event, 'error')"
+    />
+    <template v-else>
     <div class="toolbar">
       <div class="chips">
         <span class="chip accent">目录 {{ catalogItems.length }}</span>
@@ -365,11 +431,11 @@ async function removeInstalled(item: InstalledItem) {
 
     <section v-else class="market-content" aria-live="polite">
       <div class="results-heading"><div><h3>{{ tabTitle }}</h3><span>显示 {{ visibleCount }} 项</span></div><span v-if="searchQuery || typeFilter !== 'all' || verifiedOnly" class="filter-summary">筛选结果</span></div>
-      <div v-if="activeTab === 'discover'" class="results" :class="viewMode">
-        <article v-for="item in visibleCatalog" :key="item.id" class="market-item">
+      <div v-if="activeTab === 'discover'" class="results" :class="[viewMode, activeTab]">
+        <article v-for="item in visibleCatalog" :key="item.id" class="market-item market-card" tabindex="0" @click="openDetails(item)" @keydown.enter="openDetails(item)">
           <div class="item-head"><div class="product-icon"><Icon name="blocks" :size="21" /></div><div class="item-main">
-            <div class="item-title"><strong>{{ item.name }}</strong><span class="ver-badge">v{{ item.latest }}</span></div>
-            <div class="item-subtitle"><span class="item-id">{{ item.id }}</span><span v-if="item.publisher || item.author">· {{ item.publisher || item.author }}</span></div>
+            <div class="item-title"><strong>{{ item.name }}</strong><span class="ver-badge">v{{ item.latest }}</span><span v-if="installedOf(item.id)" class="installed-badge">已安装</span></div>
+            <div class="item-subtitle"><span>{{ item.author || '作者未填写' }}</span></div>
             <p class="item-desc">{{ item.description || '暂无描述' }}</p>
           </div></div>
           <div class="item-details">
@@ -382,16 +448,16 @@ async function removeInstalled(item: InstalledItem) {
           </div>
           <div class="item-actions">
             <button v-if="installedOf(item.id)?.updateVersion" class="btn accent" :disabled="isInstalling(item.id)" @click="updateCatalogItem(item)"><Icon name="refresh" :size="13" :class="{ spin: isInstalling(item.id) }" />{{ isInstalling(item.id) ? '更新中…' : '更新' }}</button>
-            <button v-else-if="installedOf(item.id)" class="btn" @click="openCatalogItem(item)"><Icon name="play" :size="13" />打开</button>
+            <button v-else-if="installedOf(item.id)" class="btn" @click="openCatalogItem(item)"><Icon name="info" :size="13" />详情</button>
             <button v-else class="btn accent" :disabled="isInstalling(item.id)" @click="install(item)"><Icon :name="isInstalling(item.id) ? 'refresh' : 'plus'" :size="13" :class="{ spin: isInstalling(item.id) }" />{{ isInstalling(item.id) ? '安装中…' : '安装' }}</button>
           </div>
         </article>
       </div>
-      <div v-else class="results" :class="viewMode">
-        <article v-for="item in visibleInstalled" :key="item.id" class="market-item">
+      <div v-else class="results" :class="[viewMode, activeTab]">
+        <article v-for="item in visibleInstalled" :key="item.id" class="market-item market-card" tabindex="0" @click="openInstalledDetails(item)" @keydown.enter="openInstalledDetails(item)">
           <div class="item-head"><div class="product-icon"><Icon name="blocks" :size="21" /></div><div class="item-main">
-            <div class="item-title"><strong>{{ item.name }}</strong><span class="ver-badge">v{{ item.version }}</span><span v-if="item.runtime === 'dynamic_library'" class="chip">本地 DLL</span><span v-else-if="item.runtime === 'external_process'" class="chip">独立进程</span><span v-if="item.updateVersion" class="chip warn">有更新</span></div>
-            <div class="item-subtitle"><span class="item-id">{{ item.id }}</span><span v-if="item.author">· {{ item.author }}</span></div>
+            <div class="item-title"><strong>{{ item.name }}</strong><span class="ver-badge">v{{ item.version }}</span><span class="installed-badge">已安装</span><span v-if="item.runtime === 'dynamic_library'" class="chip">本地 DLL</span><span v-else-if="item.runtime === 'external_process'" class="chip">独立进程</span><span v-if="item.updateVersion" class="chip warn">有更新</span></div>
+            <div class="item-subtitle"><span>{{ item.author || '作者未填写' }}</span></div>
             <p class="item-desc">{{ item.description || '暂无描述' }}</p>
           </div></div>
           <div class="item-actions"><button class="btn" @click="openInstalled(item)"><Icon name="play" :size="13" />打开</button>
@@ -407,6 +473,7 @@ async function removeInstalled(item: InstalledItem) {
       </div>
     </section>
 
+    </template>
     <Toast :message="toast" :kind="toastKind" @done="toast = ''" />
   </div>
 </template>
@@ -418,6 +485,17 @@ async function removeInstalled(item: InstalledItem) {
   height: 100%;
   gap: 10px;
 }
+
+.market-card { cursor: pointer; transition: transform .16s ease, border-color .16s ease, background .16s ease; }
+.market-card:hover, .market-card:focus-visible { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); background: color-mix(in srgb, var(--accent) 4%, var(--surface-subtle)); transform: translateY(-1px); outline: none; }
+.market-card .item-id { display: none; }
+.results.discover .item-details { display: none; }
+.results.installed .item-actions, .results.updates .item-actions { display: none; }
+.results.installed .market-card::after, .results.updates .market-card::after { content: '›'; align-self: flex-end; margin: auto 2px 0 12px; color: var(--text-muted); font-size: 20px; line-height: 1; }
+.results.installed .item-title .chip:not(.warn), .results.updates .item-title .chip:not(.warn) { display: none; }
+.results.grid .product-icon { width: 36px; height: 36px; border-radius: 10px; }
+.results.grid .item-head { gap: 9px; }
+.results.grid .item-desc { margin-top: 5px; -webkit-line-clamp: 2; }
 
 /* ---------- 顶部工具条 ---------- */
 
@@ -552,6 +630,8 @@ async function removeInstalled(item: InstalledItem) {
   font-size: 13px;
 }
 
+.installed-badge { display: inline-flex; align-items: center; padding: 3px 7px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); font-size: 10px; font-weight: 650; white-space: nowrap; }
+
 .item-author {
   font-size: 11px;
   color: var(--text-muted);
@@ -684,7 +764,7 @@ async function removeInstalled(item: InstalledItem) {
 .results.grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 310px), 1fr)); }
 .results.list { grid-template-columns: minmax(0, 1fr); }
 .market-item { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 12px; padding: 12px; border: 1px solid color-mix(in srgb, var(--border) 70%, transparent); border-radius: 12px; background: var(--surface-subtle); }
-.results.grid .market-item { min-height: 220px; flex-direction: column; align-items: stretch; padding: 14px; }
+.results.grid .market-item { min-height: 154px; flex-direction: column; align-items: stretch; padding: 12px; }
 .item-head { display: flex; flex: 1; align-items: flex-start; gap: 10px; min-width: 0; }
 .product-icon { display: grid; flex: none; place-items: center; width: 40px; height: 40px; border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent); border-radius: 11px; background: color-mix(in srgb, var(--accent) 9%, var(--surface)); color: var(--accent); }
 .item-subtitle { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 3px; color: var(--text-muted); font-size: 10px; }

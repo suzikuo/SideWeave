@@ -53,6 +53,10 @@ onUnmounted(stopLifecycleListener)
 
 官方插件 monorepo 的每个 `plugins/<id>/manifest.json` 是包元数据的来源。`tools/build-plugin-packages.ps1` 从 manifest 和 Cargo target 构建独立 ZIP，产物保存在 `SideWeave-Plugins/dist/packages/`。通过插件中心的本地 ZIP 导入入口安装开发包；不要直接复制 DLL 或为开发包写入 `.trusted-local`。详情窗口外壳属于宿主，详情页 HTML、Vue/React 代码、CSS 和资源属于插件。
 
+## 插件详情页布局
+
+插件可在 `ui.entry` 对应的 iframe 中自行实现整个详情内容。默认由宿主显示插件名称和图标；在 manifest 的 `ui` 中设置 `"chrome": "plugin"` 可隐藏这段宿主标题栏，让插件 UI 使用完整内容区域。宿主仍负责关闭、最小化和窗口拖动控件。省略 `chrome` 或设置为 `"host"` 时使用默认标题栏。Rust 插件可设置 `PluginUi.chrome` 为 `Some(PluginUiChrome::Plugin)`。
+
 ## UI 状态与 `plugin_call` 边界
 
 iframe 内不涉及外部副作用的操作应完全由插件前端处理，不调用 `plugin_call`：

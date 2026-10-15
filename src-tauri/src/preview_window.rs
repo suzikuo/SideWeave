@@ -137,17 +137,72 @@ fn fallback_payload(plugin_id: &str, manifest: &sideweave_plugin_api::PluginMani
         "statusText": format!("v{}", manifest.version),
         "subtitle": manifest.description,
         "metrics": [],
-        "actions": [
-            { "id": "open", "label": "打开面板", "primary": true }
-        ]
+        "actions": []
     })
+}
+
+fn estimate_declarative_card_height(payload: &Value, max_height: u32) -> u32 {
+    let mut content_height = 32_u32; // title and optional subtitle
+    let mut sections = 1_u32; // header
+
+    if let Some(progress) = payload.get("progress").filter(|value| value.is_object()) {
+        content_height += if progress.get("label").and_then(Value::as_str).is_some() {
+            24
+        } else {
+            7
+        };
+        sections += 1;
+    }
+
+    if let Some(items) = payload.get("items").and_then(Value::as_array) {
+        if items.is_empty() {
+            content_height += 92; // empty state, including its explanatory text
+        } else {
+            let rows = items.len().min(20) as u32;
+            content_height += (rows * 26 + rows.saturating_sub(1) * 4).min(146);
+        }
+        sections += 1;
+    } else if let Some(metrics) = payload
+        .get("metrics")
+        .and_then(Value::as_array)
+        .filter(|items| !items.is_empty())
+    {
+        let rows = ((metrics.len() + 1) / 2).min(10) as u32;
+        content_height += rows * 40 + rows.saturating_sub(1) * 6;
+        sections += 1;
+    }
+
+    let action_count = payload
+        .get("actions")
+        .and_then(Value::as_array)
+        .map(|actions| {
+            actions
+                .iter()
+                .filter(|action| {
+                    action
+                        .get("method")
+                        .and_then(Value::as_str)
+                        .map(|method| !method.is_empty())
+                        .unwrap_or(false)
+                })
+                .count()
+        })
+        .unwrap_or(0);
+    if action_count > 0 {
+        content_height += 26;
+        sections += 1;
+    }
+
+    // The card has 12px of internal vertical padding and the transparent window adds 6px per side.
+    let estimated = content_height + sections.saturating_sub(1) * 8 + 36;
+    estimated.clamp(72.min(max_height), max_height.max(1))
 }
 
 fn fetch_preview_payload(app: &AppHandle, plugin_id: &str) -> Option<(Value, u32, u32)> {
     let manifest = crate::plugin_manifest(app, plugin_id)?;
     let hover_config = manifest.hover_preview.as_ref()?;
     let card_w = hover_config.width.unwrap_or(DEFAULT_CARD_WIDTH);
-    let card_h = hover_config.height.unwrap_or(DEFAULT_CARD_HEIGHT);
+    let max_card_h = hover_config.height.unwrap_or(DEFAULT_CARD_HEIGHT);
 
     let payload = if let Some(ref entry) = hover_config.entry {
         let clean_entry = entry.trim_matches(|c| c == '/' || c == '\\').trim();
@@ -199,6 +254,12 @@ fn fetch_preview_payload(app: &AppHandle, plugin_id: &str) -> Option<(Value, u32
         }
     } else {
         fallback_payload(plugin_id, &manifest)
+    };
+
+    let card_h = if payload.get("mode").and_then(Value::as_str) == Some("custom") {
+        max_card_h
+    } else {
+        estimate_declarative_card_height(&payload, max_card_h)
     };
 
     Some((payload, card_w, card_h))

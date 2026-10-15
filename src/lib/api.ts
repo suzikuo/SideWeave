@@ -36,7 +36,6 @@ export const openPluginDetail = (pluginId: string) => openDetail(`user:${pluginI
 export const getMainSurface = () => invoke<'sidebar' | 'detail' | 'control'>('get_main_surface')
 export const openControlCenter = () => invoke<void>('open_control_center')
 export const closeDetail = () => invoke<void>('close_detail')
-export const minimizeDetail = () => invoke<boolean>('minimize_detail')
 export const toggleSidebar = () => invoke<void>('toggle_sidebar')
 export const sidebarHoverEnter = () => invoke<number>('sidebar_hover_enter')
 export const sidebarCollapseIfUnhovered = (token: number) =>

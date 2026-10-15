@@ -892,6 +892,20 @@ onUnmounted(() => {
           </div>
           <div class="card row-card">
             <div class="row-main">
+              <div class="row-title">控制中心默认置顶</div>
+              <div class="row-desc">下次打开控制中心时置于其他窗口上方，可用标题栏按钮临时切换</div>
+            </div>
+            <input
+              type="checkbox"
+              class="switch"
+              role="switch"
+              aria-label="控制中心默认置顶"
+              :checked="settings.general.control_center_always_on_top"
+              @change="change('general', 'control_center_always_on_top', ($event.target as HTMLInputElement).checked)"
+            />
+          </div>
+          <div class="card row-card">
+            <div class="row-main">
               <div class="row-title">悬停展开侧边栏</div>
               <div class="row-desc">鼠标移到屏幕边缘时自动展开</div>
             </div>
@@ -1131,21 +1145,6 @@ onUnmounted(() => {
           </div>
           <div class="card row-card">
             <div class="row-main">
-              <div class="row-title">通知背景不透明度</div>
-              <div class="row-desc">Web 绘制只调背景；原生模式会让整张通知轻微变透明</div>
-            </div>
-            <RangeSlider
-              :model-value="settings.notifications.background_opacity"
-              :min="0.65"
-              :max="1"
-              :step="0.01"
-              :format="fmtPercent"
-              aria-label="通知背景不透明度"
-              @commit="(v) => change('notifications', 'background_opacity', v)"
-            />
-          </div>
-          <div class="card row-card">
-            <div class="row-main">
               <div class="row-title">细缝提示色</div>
             </div>
             <input
@@ -1209,6 +1208,21 @@ onUnmounted(() => {
           </div>
           <div class="card row-card">
             <div class="row-main">
+              <div class="row-title">桌面通知背景不透明度</div>
+              <div class="row-desc">Web 模式只调整背景；原生模式会应用到整张通知</div>
+            </div>
+            <RangeSlider
+              :model-value="settings.notifications.desktop_background_opacity"
+              :min="0"
+              :max="1"
+              :step="0.01"
+              :format="fmtPercent"
+              aria-label="桌面通知背景不透明度"
+              @commit="(v) => change('notifications', 'desktop_background_opacity', v)"
+            />
+          </div>
+          <div class="card row-card">
+            <div class="row-main">
               <div class="row-title">侧边栏气泡背景色</div>
               <div class="row-desc">可为漫画气泡单独设置背景色</div>
             </div>
@@ -1227,6 +1241,21 @@ onUnmounted(() => {
                 @click="change('notifications', 'bubble_background_color', '')"
               >跟随皮肤</button>
             </div>
+          </div>
+          <div class="card row-card">
+            <div class="row-main">
+              <div class="row-title">侧边栏气泡背景不透明度</div>
+              <div class="row-desc">Web 模式只调整气泡背景；原生模式会应用到整张通知</div>
+            </div>
+            <RangeSlider
+              :model-value="settings.notifications.bubble_background_opacity"
+              :min="0"
+              :max="1"
+              :step="0.01"
+              :format="fmtPercent"
+              aria-label="侧边栏气泡背景不透明度"
+              @commit="(v) => change('notifications', 'bubble_background_opacity', v)"
+            />
           </div>
         </section>
       </template>

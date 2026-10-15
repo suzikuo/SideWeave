@@ -12,7 +12,8 @@ export type SkinId = (typeof SKINS)[number]['id']
 /** 应用主题（data-theme）× 皮肤（data-skin）与强调色到 documentElement */
 export function applyTheme(settings: Settings) {
   const { theme_mode, accent_color, skin } = settings.appearance
-  const notificationOpacity = settings.notifications?.background_opacity ?? 0.92
+  const desktopNotificationOpacity = settings.notifications?.desktop_background_opacity ?? 0.92
+  const bubbleNotificationOpacity = settings.notifications?.bubble_background_opacity ?? 0.92
   const notificationRoot = document.documentElement
   const mode =
     theme_mode === 'system'
@@ -39,10 +40,13 @@ export function applyTheme(settings: Settings) {
     document.documentElement.style.removeProperty('--accent')
   }
 
-  notificationRoot.style.setProperty('--notification-background-opacity', String(notificationOpacity))
+  notificationRoot.style.setProperty('--notification-desktop-background-opacity', String(desktopNotificationOpacity))
+  notificationRoot.style.setProperty('--notification-bubble-background-strength', `${Math.round(bubbleNotificationOpacity * 100)}%`)
+  // Keep the old variables available to custom skins that still reference them.
+  notificationRoot.style.setProperty('--notification-background-opacity', String(desktopNotificationOpacity))
   notificationRoot.style.setProperty(
     '--notification-background-strength',
-    `${Math.round(notificationOpacity * 100)}%`
+    `${Math.round(bubbleNotificationOpacity * 100)}%`
   )
   const notificationColors = [
     ['--notification-custom-desktop-background', settings.notifications?.desktop_background_color],

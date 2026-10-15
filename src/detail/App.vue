@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import Icon from '../ui/Icon.vue'
 import ControlCenterView from '../views/ControlCenterView.vue'
@@ -23,12 +24,40 @@ const loaded = ref(false)
 const page = ref('')
 const showNativeControl = ref(false)
 const skinSurfaceReady = ref(false)
+const alwaysOnTop = ref(false)
+const nativeWindow = getCurrentWindow()
 const darkQuery = window.matchMedia('(prefers-color-scheme: dark)')
 const systemDark = ref(darkQuery.matches)
 let unlistenSurface: UnlistenFn | null = null
 
 function onSchemeChange(event: MediaQueryListEvent) {
   systemDark.value = event.matches
+}
+
+async function syncAlwaysOnTop() {
+  try {
+    alwaysOnTop.value = await nativeWindow.isAlwaysOnTop()
+  } catch {
+    alwaysOnTop.value = false
+  }
+}
+
+async function toggleAlwaysOnTop() {
+  const next = !alwaysOnTop.value
+  try {
+    await nativeWindow.setAlwaysOnTop(next)
+    alwaysOnTop.value = next
+  } catch (error) {
+    console.error('切换窗口置顶状态失败', error)
+  }
+}
+
+async function minimizeWindow() {
+  try {
+    await nativeWindow.minimize()
+  } catch (error) {
+    console.error('最小化窗口失败', error)
+  }
 }
 
 const effectiveTheme = computed(() => {
@@ -67,6 +96,7 @@ onMounted(async () => {
   darkQuery.addEventListener('change', onSchemeChange)
   unlistenSurface = await listen<Surface>(EVENTS.mainSurface, (event) => {
     surface.value = event.payload
+    void syncAlwaysOnTop()
   }).catch(() => null)
 
   const snapshot = await bindSettings((fresh: Settings) => {
@@ -78,6 +108,7 @@ onMounted(async () => {
   appVersionRef.value = snapshot.app_version
   dataDirRef.value = snapshot.data_dir
   surface.value = (await getMainSurface()) === 'control' ? 'control' : 'detail'
+  await syncAlwaysOnTop()
   loaded.value = true
 })
 
@@ -100,7 +131,12 @@ onUnmounted(() => {
   <template v-if="loaded">
     <div v-show="surface === 'detail' && !(skinSurfaceReady && isSkinHomePage)" class="detail-surface" :style="detailStyle" @contextmenu.prevent>
       <div class="detail-shell" :class="{ 'plugin-detail-shell': isPluginDetailPage }">
-        <DetailView :active="surface === 'detail'" />
+        <DetailView
+          :active="surface === 'detail'"
+          :always-on-top="alwaysOnTop"
+          @toggle-always-on-top="toggleAlwaysOnTop"
+          @minimize-window="minimizeWindow"
+        />
       </div>
     </div>
 
@@ -116,9 +152,25 @@ onUnmounted(() => {
           type="button"
           @click="showNativeControl = false"
         >返回皮肤控制中心</button>
-        <button class="control-close" type="button" aria-label="关闭控制中心" title="关闭" @click="closeDetail">
-          <Icon name="x" :size="17" />
-        </button>
+        <div class="control-window-actions" :class="{ 'push-right': !showNativeControl }" data-tauri-drag-region="false">
+          <button
+            class="control-window-button"
+            :class="{ pinned: alwaysOnTop }"
+            type="button"
+            :title="alwaysOnTop ? '取消置顶' : '置顶'"
+            :aria-label="alwaysOnTop ? '取消窗口置顶' : '窗口置顶'"
+            :aria-pressed="alwaysOnTop"
+            @click="toggleAlwaysOnTop"
+          >
+            <Icon name="pin" :size="16" />
+          </button>
+          <button class="control-window-button" type="button" aria-label="最小化控制中心" title="最小化" @click="minimizeWindow">
+            <Icon name="minus" :size="17" />
+          </button>
+          <button class="control-close" type="button" aria-label="关闭控制中心" title="关闭" @click="closeDetail">
+            <Icon name="x" :size="17" />
+          </button>
+        </div>
       </header>
       <div class="control-body">
         <ControlCenterView :active="surface === 'control'" />
@@ -264,6 +316,37 @@ onUnmounted(() => {
   border-radius: 8px;
   background: transparent;
   color: var(--text-muted);
+}
+
+.control-window-actions {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  margin-left: 8px;
+  gap: 2px;
+}
+
+.control-window-actions.push-right {
+  margin-left: auto;
+}
+
+.control-window-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.control-window-button:hover,
+.control-window-button.pinned {
+  background: color-mix(in srgb, var(--accent) calc(var(--component-opacity, 1) * 14%), transparent);
+  color: var(--accent);
 }
 
 .control-close:hover {

@@ -307,7 +307,11 @@ pub(super) fn update(
     let area = crate::platform::work_area();
     let scale = crate::monitor_scale(app).max(0.5);
     let notification_settings = crate::host_settings(app).notifications;
-    let opacity = notification_settings.background_opacity.clamp(0.65, 1.0);
+    let opacity = match surface {
+        Surface::Desktop => notification_settings.desktop_background_opacity,
+        Surface::Sidebar => notification_settings.bubble_background_opacity,
+    }
+    .clamp(0.0, 1.0);
     let desktop_background = parse_hex_color(&notification_settings.desktop_background_color)
         .unwrap_or_else(|| rgb(35, 37, 44));
     let bubble_background = parse_hex_color(&notification_settings.bubble_background_color)

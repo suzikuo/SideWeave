@@ -59,6 +59,10 @@ const pluginImageStyle = computed(() => ({
     <template v-else-if="name === 'minus'">
       <path d="M5 12h14" />
     </template>
+    <template v-else-if="name === 'pin'">
+      <path d="m16 3 5 5-4 1-4 4 2 2-2 2-4-4-5 5" />
+      <path d="m11 13-7 7" />
+    </template>
     <template v-else-if="name === 'x'">
       <path d="M18 6 6 18" />
       <path d="m6 6 12 12" />
@@ -76,6 +80,9 @@ const pluginImageStyle = computed(() => ({
     </template>
     <template v-else-if="name === 'chevron-down'">
       <path d="m6 9 6 6 6-6" />
+    </template>
+    <template v-else-if="name === 'chevron-left'">
+      <path d="m15 18-6-6 6-6" />
     </template>
     <template v-else-if="name === 'folder'">
       <path

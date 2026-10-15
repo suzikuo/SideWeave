@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import Icon from '../ui/Icon.vue'
-import { closeDetail, minimizeDetail } from '../lib/api'
+import { closeDetail } from '../lib/api'
 import SettingsView from './SettingsView.vue'
 import PluginCenterView from './PluginCenterView.vue'
 import SkinCenterView from './SkinCenterView.vue'
@@ -14,10 +13,12 @@ import type { RuntimePluginInfo } from '../lib/marketApi'
 import { pluginsRef } from '../lib/store'
 
 const page = ref<string>('')
-const props = defineProps<{ active: boolean }>()
+const props = defineProps<{ active: boolean; alwaysOnTop: boolean }>()
+const emit = defineEmits<{
+  'toggle-always-on-top': []
+  'minimize-window': []
+}>()
 const runtimePlugins = ref<RuntimePluginInfo[]>([])
-const compact = ref(false)
-let unlistenCompact: UnlistenFn | null = null
 
 function syncHash() {
   page.value = window.location.hash.replace(/^#\//, '')
@@ -35,11 +36,6 @@ onMounted(() => {
   syncHash()
   window.addEventListener('hashchange', syncHash)
   void refreshRuntimePlugins(false)
-  void listen<boolean>('detail://compact', (event) => {
-    compact.value = event.payload
-  }).then((unlisten) => {
-    unlistenCompact = unlisten
-  })
 })
 watch(page, () => {
   if (runtimePlugins.value.length === 0) {
@@ -48,16 +44,7 @@ watch(page, () => {
 })
 onUnmounted(() => {
   window.removeEventListener('hashchange', syncHash)
-  unlistenCompact?.()
 })
-
-async function toggleCompact() {
-  try {
-    compact.value = await minimizeDetail()
-  } catch (error) {
-    console.error('切换详情页紧凑态失败', error)
-  }
-}
 
 // 无边框窗口缩放：8 个边缘手柄 → startResizeDragging
 const appWindow = getCurrentWindow()
@@ -98,6 +85,7 @@ const pluginName = computed(() => {
 })
 
 const pluginIcon = computed(() => runtimePlugin.value?.manifest.icon || pluginMeta.value?.icon || 'puzzle')
+const pluginChrome = computed(() => runtimePlugin.value?.manifest.ui?.chrome === 'plugin')
 
 // 内容滚动时在头部下缘浮现渐变遮罩，柔化卡片与滚动内容的交界
 const scrolled = ref(false)
@@ -121,9 +109,9 @@ const emptyHint = computed(() => '点击屏幕边缘的圆环即可打开对应�
   <div class="rz se" @mousedown="beginResize($event, 'SouthEast')" />
 
   <!-- Pulse 风格详情卡：贴轨道展开的深色圆角卡片 -->
-  <div class="card" :class="{ 'plugin-card': isPluginDetail, compact }">
-    <header class="card-head" :class="{ scrolled }" data-tauri-drag-region>
-      <div v-if="isPluginDetail" class="plugin-identity" data-tauri-drag-region>
+  <div class="card" :class="{ 'plugin-card': isPluginDetail, 'plugin-custom-chrome': pluginChrome }">
+    <header class="card-head" :class="{ scrolled, 'custom-plugin-head': pluginChrome }" data-tauri-drag-region>
+      <div v-if="isPluginDetail && !pluginChrome" class="plugin-identity" data-tauri-drag-region>
         <span class="plugin-icon" data-tauri-drag-region>
           <Icon :name="pluginIcon" :size="15" :stroke-width="1.8" />
         </span>
@@ -132,11 +120,21 @@ const emptyHint = computed(() => '点击屏幕边缘的圆环即可打开对应�
       <div class="window-actions" data-tauri-drag-region="false">
         <button
           class="minimize"
-          :title="compact ? '展开' : '最小化'"
-          :aria-label="compact ? '展开详情卡' : '最小化详情卡'"
-          @click="toggleCompact"
+          title="最小化"
+          aria-label="最小化窗口"
+          @click="emit('minimize-window')"
         >
-          <Icon :name="compact ? 'chevron-down' : 'minus'" :size="15" />
+          <Icon name="minus" :size="15" />
+        </button>
+        <button
+          class="pin"
+          :class="{ pinned: props.alwaysOnTop }"
+          :title="props.alwaysOnTop ? '取消置顶' : '置顶'"
+          :aria-label="props.alwaysOnTop ? '取消窗口置顶' : '窗口置顶'"
+          :aria-pressed="props.alwaysOnTop"
+          @click="emit('toggle-always-on-top')"
+        >
+          <Icon name="pin" :size="15" />
         </button>
         <button class="close" title="关闭" aria-label="关闭详情卡" @click="closeDetail">
           <Icon name="x" :size="15" />
@@ -168,7 +166,7 @@ const emptyHint = computed(() => '点击屏幕边缘的圆环即可打开对应�
       <PluginDetailHostView
         v-show="isPluginDetail"
         :plugin-id="isPluginDetail ? (userPluginId || page) : ''"
-        :active="props.active && !compact && isPluginDetail"
+        :active="props.active && isPluginDetail"
       />
     </main>
   </div>
@@ -194,6 +192,13 @@ const emptyHint = computed(() => '点击屏幕边缘的圆环即可打开对应�
   box-shadow: none;
 }
 
+.plugin-custom-chrome {
+  height: 100vh;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+}
+
 .card-head {
   flex: none;
   position: relative;
@@ -206,12 +211,19 @@ const emptyHint = computed(() => '点击屏幕边缘的圆环即可打开对应�
   border-bottom: 1px solid var(--border);
 }
 
-.card.compact .card-body {
-  display: none;
-}
-
 .plugin-card .card-head {
   border-bottom-color: color-mix(in srgb, var(--border) 58%, transparent);
+}
+
+.plugin-custom-chrome .custom-plugin-head {
+  min-height: 32px;
+  padding: 3px 8px;
+  border-bottom: 0;
+  background: transparent;
+}
+
+.plugin-custom-chrome .custom-plugin-head::after {
+  display: none;
 }
 
 .plugin-identity {
@@ -272,6 +284,7 @@ const emptyHint = computed(() => '点击屏幕边缘的圆环即可打开对应�
 }
 
 .minimize,
+.pin,
 .close {
   display: flex;
   align-items: center;
@@ -287,6 +300,11 @@ const emptyHint = computed(() => '点击屏幕边缘的圆环即可打开对应�
 .minimize:hover {
   background: var(--surface-subtle);
   color: var(--text);
+}
+.pin:hover,
+.pin.pinned {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
 }
 .close:hover {
   background: var(--surface-subtle);
