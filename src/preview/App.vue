@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import Button from '@/components/ui/button/Button.vue'
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import {
@@ -13,6 +14,7 @@ import {
   type PreviewItem,
   type PreviewPayload
 } from '../lib/api'
+import Icon from '../ui/Icon.vue'
 import { pluginCall } from '../lib/pluginApi'
 import { applyTheme } from '../lib/theme'
 import SkinSurfaceHost from '../views/SkinSurfaceHost.vue'
@@ -79,7 +81,9 @@ const THEME_VARIABLES = [
   '--shadow',
   '--radius',
   '--radius-lg',
-  '--font-ui'
+  '--font-ui',
+  '--preview-panel-opacity',
+  '--preview-panel-opacity-percent'
 ]
 let messageWindowStartedAt = 0
 let messageWindowCount = 0
@@ -368,6 +372,7 @@ onUnmounted(() => {
       <template v-if="preview.mode !== 'custom'">
         <!-- 头部：标题、副标题与呼吸状态徽标 -->
         <div class="header">
+          <div class="preview-app-icon"><Icon name="puzzle" :size="16" /></div>
           <div class="title-group">
             <div class="title">{{ preview.title }}</div>
             <div v-if="preview.subtitle" class="subtitle">{{ preview.subtitle }}</div>
@@ -378,6 +383,8 @@ onUnmounted(() => {
             <span class="status-text">{{ preview.statusText }}</span>
           </div>
         </div>
+        <div class="preview-divider" />
+        <div class="preview-content">
 
         <!-- 进度条原语 -->
         <div v-if="preview.progress" class="preview-progress">
@@ -392,7 +399,7 @@ onUnmounted(() => {
 
         <!-- 快捷条目列表原语（针对应用启动器等提供 items 的插件） -->
         <div v-if="preview.items && preview.items.length > 0" class="items-list">
-          <button
+          <Button variant="ghost" size="sm"
             v-for="item in preview.items"
             :key="item.id"
             class="preview-item-btn"
@@ -415,7 +422,7 @@ onUnmounted(() => {
                 <polyline points="9 18 15 12 9 6"></polyline>
               </svg>
             </span>
-          </button>
+          </Button>
         </div>
 
         <!-- 空条目状态 -->
@@ -443,10 +450,11 @@ onUnmounted(() => {
         <div v-if="actionError" class="action-error" :title="actionError">
           {{ actionError }}
         </div>
+        </div>
 
         <!-- 底部快捷操作原语 -->
         <div v-if="visibleActions.length > 0" class="actions-bar">
-          <button
+          <Button :variant="action.primary ? 'default' : action.danger ? 'destructive' : 'outline'" size="sm"
             v-for="action in visibleActions"
             :key="action.id"
             class="action-btn"
@@ -460,7 +468,7 @@ onUnmounted(() => {
           >
             <span v-if="actionLoading === action.id" class="spinner" />
             <span>{{ action.label }}</span>
-          </button>
+          </Button>
         </div>
       </template>
     </div>
@@ -670,14 +678,6 @@ onUnmounted(() => {
   overflow-y: auto;
   overflow-x: hidden;
   padding-right: 2px;
-}
-
-.items-list::-webkit-scrollbar {
-  width: 4px;
-}
-.items-list::-webkit-scrollbar-thumb {
-  background: var(--border-strong);
-  border-radius: 4px;
 }
 
 .preview-item-btn {
@@ -919,4 +919,57 @@ onUnmounted(() => {
     transform: rotate(360deg);
   }
 }
+
+.preview-container { padding: 7px; }
+.preview-card {
+  --preview-panel-fill: color-mix(in srgb, var(--card) var(--preview-panel-opacity-percent, 97%), transparent);
+  --preview-muted-fill: color-mix(in srgb, var(--muted) var(--preview-panel-opacity-percent, 97%), transparent);
+  gap: 0;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--border) var(--preview-panel-opacity-percent, 97%), transparent);
+  border-radius: 10px;
+  background: var(--preview-panel-fill);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.preview-card.is-custom { padding: 0; }
+.header { min-height: 46px; align-items: center; gap: 8px; padding: 7px 10px; }
+.preview-app-icon { display: grid; width: 30px; height: 30px; flex: none; place-items: center; border: 1px solid color-mix(in srgb, var(--border) var(--preview-panel-opacity-percent, 97%), transparent); border-radius: 7px; background: var(--preview-muted-fill); color: var(--foreground); }
+.title-group { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.title { color: var(--foreground); font-size: 10px; font-weight: 600; line-height: 1.15; letter-spacing: -.01em; }
+.subtitle { margin-top: 0; color: var(--muted-foreground); font-size: 8px; }
+.status-badge { padding: 2px 6px; border-color: color-mix(in srgb, var(--border) var(--preview-panel-opacity-percent, 97%), transparent); border-radius: 5px; background: var(--preview-muted-fill); font-size: 8px; }
+.status-dot { width: 6px; height: 6px; box-shadow: none; }
+.preview-divider { height: 1px; flex: none; background: color-mix(in srgb, var(--border) var(--preview-panel-opacity-percent, 97%), transparent); }
+.preview-content { display: flex; min-height: 0; flex: 1; flex-direction: column; gap: 7px; overflow: auto; padding: 8px 10px; }
+.preview-progress { gap: 5px; padding: 8px 9px; border: 1px solid color-mix(in srgb, var(--border) var(--preview-panel-opacity-percent, 97%), transparent); border-radius: 7px; background: var(--preview-panel-fill); }
+.progress-label { color: var(--muted-foreground); font-size: 8px; }
+.progress-track { height: 4px; border: 0; background: var(--preview-muted-fill); }
+.progress-fill { border-radius: 999px; background: var(--primary); }
+.items-list { display: flex; max-height: 120px; flex: none; flex-direction: column; gap: 1px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding: 4px; border: 1px solid color-mix(in srgb, var(--border) var(--preview-panel-opacity-percent, 97%), transparent); border-radius: 8px; background: var(--preview-panel-fill); }
+.preview-item-btn { display: flex; min-height: 36px; width: 100%; justify-content: flex-start; gap: 7px; padding: 4px 6px; border: 1px solid transparent; border-radius: 5px; background: color-mix(in srgb, color-mix(in srgb, var(--surface-subtle) 60%, transparent) var(--preview-panel-opacity-percent, 97%), transparent); color: var(--foreground); text-align: left; }
+.preview-item-btn:hover:not(:disabled) { border-color: color-mix(in srgb, var(--border) var(--preview-panel-opacity-percent, 97%), transparent); background: var(--preview-muted-fill); color: var(--foreground); }
+.item-icon,
+.item-icon-placeholder { width: 24px; height: 24px; flex: none; border: 1px solid color-mix(in srgb, var(--border) var(--preview-panel-opacity-percent, 97%), transparent); border-radius: 6px; background: var(--preview-panel-fill); }
+.item-icon-placeholder { display: grid; place-items: center; color: var(--muted-foreground); }
+.item-title { overflow: hidden; font-size: 10px; font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
+.item-badge { border: 1px solid color-mix(in srgb, var(--border) var(--preview-panel-opacity-percent, 97%), transparent); border-radius: 4px; background: var(--preview-muted-fill); color: var(--muted-foreground); font-size: 8px; }
+.item-subtitle { display: none; }
+.item-arrow { margin-left: auto; color: var(--muted-foreground); }
+.metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; padding: 5px 6px; }
+.metric-item { display: flex; min-height: 48px; flex-direction: column; justify-content: center; gap: 2px; padding: 6px 8px; border: 1px solid color-mix(in srgb, var(--border) var(--preview-panel-opacity-percent, 97%), transparent); border-radius: 7px; background: var(--preview-panel-fill); }
+.metric-label { color: var(--muted-foreground); font-size: 8px; }
+.metric-value { color: var(--foreground); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.metric-subvalue { color: var(--muted-foreground); font-size: 8px; }
+.empty-preview { display: flex; min-height: 96px; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 5px; padding: 10px; border: 1px dashed var(--border); border-radius: 8px; background: transparent; text-align: center; }
+.empty-icon { width: 28px; height: 28px; margin-bottom: 1px; border: 1px solid color-mix(in srgb, var(--border) var(--preview-panel-opacity-percent, 97%), transparent); border-radius: 7px; background: var(--preview-muted-fill); color: var(--muted-foreground); }
+.empty-text { color: var(--foreground); font-size: 9px; font-weight: 550; }
+.empty-hint { color: var(--muted-foreground); font-size: 8px; }
+.action-error { padding: 6px 8px; border: 1px solid color-mix(in srgb, color-mix(in srgb, var(--destructive) 30%, transparent) var(--preview-panel-opacity-percent, 97%), transparent); border-radius: 6px; background: color-mix(in srgb, color-mix(in srgb, var(--destructive) 8%, transparent) var(--preview-panel-opacity-percent, 97%), transparent); color: var(--destructive); font-size: 8px; }
+.actions-bar { flex: none; flex-wrap: wrap; gap: 5px; padding: 7px 10px; border-top: 1px solid color-mix(in srgb, var(--border) var(--preview-panel-opacity-percent, 97%), transparent); background: color-mix(in srgb, color-mix(in srgb, var(--muted) 32%, transparent) var(--preview-panel-opacity-percent, 97%), transparent); }
+.actions-bar :deep(button) { min-height: 26px; border-radius: 5px; font-size: 8px; }
+.action-btn.primary { background: var(--primary); color: var(--primary-foreground); }
+.action-btn.danger { border-color: color-mix(in srgb, var(--destructive) 30%, var(--border)); background: color-mix(in srgb, var(--destructive) 8%, var(--background)); color: var(--destructive); }
+.action-btn.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--destructive) 14%, var(--background)); }
 </style>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import Button from '@/components/ui/button/Button.vue'
 import { computed } from 'vue'
 import Icon from '../ui/Icon.vue'
 import type { InstalledItem, MarketItem } from '../lib/marketApi'
@@ -130,16 +131,16 @@ const hasMarketMetadata = computed(() => Boolean(props.item.publisher || props.i
 
       <footer class="detail-actions">
         <template v-if="kind === 'plugin'">
-          <button v-if="installed" class="btn" type="button" @click="emit('open')"><Icon name="play" :size="14" />打开插件</button>
-          <button v-if="installed" class="btn danger" :class="{ confirming: removeConfirm }" type="button" @click="emit('remove')"><Icon name="trash" :size="14" />{{ removeConfirm ? '确认移除' : '移除插件' }}</button>
-          <button v-if="installed?.updateVersion" class="btn update" type="button" :disabled="busy" @click="emit('update')"><Icon name="refresh" :size="14" :class="{ spin: busy }" />更新到 v{{ installed.updateVersion }}</button>
-          <button v-else-if="!installed" class="btn accent" type="button" :disabled="busy" @click="emit('install')"><Icon :name="busy ? 'refresh' : 'plus'" :size="14" :class="{ spin: busy }" />{{ busy ? '正在安装…' : '安装插件' }}</button>
+          <Button variant="outline" size="sm" v-if="installed" class="btn" type="button" @click="emit('open')"><Icon name="play" :size="14" />打开插件</Button>
+          <Button variant="destructive" size="sm" v-if="installed" class="btn danger" :class="{ confirming: removeConfirm }" type="button" @click="emit('remove')"><Icon name="trash" :size="14" />{{ removeConfirm ? '确认移除' : '移除插件' }}</Button>
+          <Button variant="outline" size="sm" v-if="installed?.updateVersion" class="btn update" type="button" :disabled="busy" @click="emit('update')"><Icon name="refresh" :size="14" :class="{ spin: busy }" />更新到 v{{ installed.updateVersion }}</Button>
+          <Button variant="default" size="sm" v-else-if="!installed" class="btn accent" type="button" :disabled="busy" @click="emit('install')"><Icon :name="busy ? 'refresh' : 'plus'" :size="14" :class="{ spin: busy }" />{{ busy ? '正在安装…' : '安装插件' }}</Button>
         </template>
         <template v-else>
-          <button v-if="installed" class="btn apply" type="button" :disabled="current" @click="emit('apply')"><Icon name="check" :size="14" />{{ current ? '正在使用' : '应用皮肤' }}</button>
-          <button v-if="installed" class="btn danger" :class="{ confirming: removeConfirm }" type="button" @click="emit('remove')"><Icon name="trash" :size="14" />{{ removeConfirm ? '确认移除' : '移除皮肤' }}</button>
-          <button v-if="installed?.updateVersion" class="btn update" type="button" :disabled="busy" @click="emit('update')"><Icon name="refresh" :size="14" :class="{ spin: busy }" />更新到 v{{ installed.updateVersion }}</button>
-          <button v-else-if="!installed" class="btn accent" type="button" :disabled="busy" @click="emit('install')"><Icon :name="busy ? 'refresh' : 'plus'" :size="14" :class="{ spin: busy }" />{{ busy ? '正在安装…' : '安装皮肤' }}</button>
+          <Button variant="outline" size="sm" v-if="installed" class="btn apply" type="button" :disabled="current" @click="emit('apply')"><Icon name="check" :size="14" />{{ current ? '正在使用' : '应用皮肤' }}</Button>
+          <Button variant="destructive" size="sm" v-if="installed" class="btn danger" :class="{ confirming: removeConfirm }" type="button" @click="emit('remove')"><Icon name="trash" :size="14" />{{ removeConfirm ? '确认移除' : '移除皮肤' }}</Button>
+          <Button variant="outline" size="sm" v-if="installed?.updateVersion" class="btn update" type="button" :disabled="busy" @click="emit('update')"><Icon name="refresh" :size="14" :class="{ spin: busy }" />更新到 v{{ installed.updateVersion }}</Button>
+          <Button variant="default" size="sm" v-else-if="!installed" class="btn accent" type="button" :disabled="busy" @click="emit('install')"><Icon :name="busy ? 'refresh' : 'plus'" :size="14" :class="{ spin: busy }" />{{ busy ? '正在安装…' : '安装皮肤' }}</Button>
         </template>
       </footer>
     </div>
@@ -184,7 +185,7 @@ const hasMarketMetadata = computed(() => Boolean(props.item.publisher || props.i
 .version-row span:first-child { color: var(--text); font-weight: 600; }
 .version-row span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .detail-actions { display: flex; flex: none; justify-content: flex-end; flex-wrap: wrap; gap: 7px; padding: 11px 3px 2px; border-top: 1px solid var(--border); }
-.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 32px; padding: 0 11px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--text); font: inherit; font-size: 11px; font-weight: 550; cursor: pointer; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 32px; padding: 0 11px; border: 1px solid var(--border); border-radius: var(--radius, 6px); background: var(--surface); color: var(--text); font: inherit; font-size: 11px; font-weight: 550; cursor: pointer; }
 .btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .btn:disabled { opacity: .55; cursor: default; }
 .btn.accent { border-color: transparent; background: var(--accent); color: #fff; font-weight: 650; }
@@ -197,4 +198,77 @@ const hasMarketMetadata = computed(() => Boolean(props.item.publisher || props.i
 .spin { animation: spin .9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (max-width: 640px) { .detail-grid { grid-template-columns: 1fr; } .versions-panel { grid-column: auto; } .detail-hero { padding: 14px; } }
+
+.market-detail { gap: 10px; }
+.detail-toolbar { min-height: 30px; }
+.back-button { min-height: 28px; padding: 0 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--background); color: var(--muted-foreground); font-size: 9px; }
+.back-button:hover { border-color: var(--border-strong); background: var(--muted); color: var(--foreground); }
+.detail-kicker { color: var(--muted-foreground); font-size: 9px; font-weight: 550; }
+.detail-scroll { padding: 0 1px 8px; }
+.detail-hero { gap: 13px; padding: 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); }
+.detail-icon { width: 42px; height: 42px; border: 1px solid var(--border); border-radius: 8px; background: var(--muted); color: var(--foreground); }
+.detail-title h3 { color: var(--foreground); font-size: 15px; font-weight: 600; }
+.detail-subtitle { color: var(--muted-foreground); font-size: 9px; }
+.detail-description { margin-top: 8px; color: var(--muted-foreground); font-size: 10px; line-height: 1.55; }
+.detail-badges .chip,
+.detail-badges .ver-badge { border: 1px solid var(--border); border-radius: 4px; background: var(--background); color: var(--muted-foreground); font-size: 8px; }
+.detail-grid { gap: 8px; margin-top: 8px; }
+.detail-panel { padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); }
+.detail-panel h4 { margin-bottom: 10px; color: var(--foreground); font-size: 10px; font-weight: 600; }
+.detail-facts { gap: 8px; }
+.detail-facts > div { font-size: 9px; }
+.detail-facts dt,
+.detail-empty,
+.native-note { color: var(--muted-foreground); }
+.permission-detail { color: var(--primary); font-size: 9px; }
+.permission-detail code { font-size: 8px; }
+.version-row { font-size: 9px; }
+.detail-actions { padding: 9px 0 1px; }
+.detail-actions :deep(button) { min-height: 31px; border-radius: 6px; font-size: 9px; }
+.detail-actions :deep(button.accent) { background: var(--primary); color: var(--primary-foreground); }
+.detail-actions :deep(button.danger) { color: var(--destructive); }
+
+/* 详情视图沿用插件中心的组件不透明度设置。 */
+.back-button,
+.detail-hero,
+.detail-panel,
+.detail-icon,
+.detail-badges .chip,
+.detail-badges .ver-badge,
+.btn {
+  background: color-mix(in srgb, var(--background) calc(var(--component-opacity, 1) * 100%), transparent);
+}
+.detail-hero,
+.detail-panel {
+  background: color-mix(in srgb, var(--card) calc(var(--component-opacity, 1) * 100%), transparent);
+}
+.detail-icon { background: color-mix(in srgb, var(--muted) calc(var(--component-opacity, 1) * 100%), transparent); }
+.btn.accent,
+.detail-actions :deep(button.accent) {
+  background: color-mix(in srgb, var(--primary) calc(var(--component-opacity, 1) * 100%), transparent);
+}
+.btn.update {
+  background: color-mix(
+    in srgb,
+    color-mix(in srgb, var(--warning) 12%, var(--surface))
+      calc(var(--component-opacity, 1) * 100%),
+    transparent
+  );
+}
+.btn.apply {
+  background: color-mix(in srgb, var(--primary) calc(var(--component-opacity, 1) * 14%), transparent);
+}
+.btn.danger.confirming {
+  background: color-mix(in srgb, var(--destructive) calc(var(--component-opacity, 1) * 100%), transparent);
+}
+.detail-hero,
+.detail-panel,
+.detail-icon,
+.detail-badges .chip,
+.detail-badges .ver-badge,
+.back-button,
+.btn {
+  backdrop-filter: var(--component-glass-filter, none);
+  -webkit-backdrop-filter: var(--component-glass-filter, none);
+}
 </style>

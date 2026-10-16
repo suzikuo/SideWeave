@@ -84,7 +84,9 @@ pub fn calculate_preview_geometry(
         }
         _ => {
             // right (默认)
-            let x = sidebar_pos.x - card_w_phys - gap_phys;
+            // The preview webview already has transparent inner padding; omit
+            // the extra outer gap here so the visible card sits closer to the rail.
+            let x = sidebar_pos.x - card_w_phys;
             let y = btn_phys_y + (btn_phys_h - card_h_phys) / 2;
             (x, y)
         }
@@ -142,34 +144,41 @@ fn fallback_payload(plugin_id: &str, manifest: &sideweave_plugin_api::PluginMani
 }
 
 fn estimate_declarative_card_height(payload: &Value, max_height: u32) -> u32 {
-    let mut content_height = 32_u32; // title and optional subtitle
-    let mut sections = 1_u32; // header
+    // Keep these dimensions aligned with the compact preview styles in preview/App.vue.
+    let mut content_height = 0_u32;
+    let mut content_sections = 0_u32;
 
     if let Some(progress) = payload.get("progress").filter(|value| value.is_object()) {
-        content_height += if progress.get("label").and_then(Value::as_str).is_some() {
-            24
+        content_height += if progress
+            .get("label")
+            .and_then(Value::as_str)
+            .is_some_and(|label| !label.is_empty())
+        {
+            37 // label, progress track, gap, border, and vertical padding
         } else {
-            7
+            22 // progress track, border, and vertical padding
         };
-        sections += 1;
+        content_sections += 1;
     }
 
     if let Some(items) = payload.get("items").and_then(Value::as_array) {
         if items.is_empty() {
-            content_height += 92; // empty state, including its explanatory text
+            content_height += 96; // empty state min-height
         } else {
             let rows = items.len().min(20) as u32;
-            content_height += (rows * 30 + rows.saturating_sub(1) * 4).min(146);
+            let list_height = rows * 36 + rows.saturating_sub(1) + 10;
+            content_height += list_height.min(120); // compact list max-height
         }
-        sections += 1;
+        content_sections += 1;
     } else if let Some(metrics) = payload
         .get("metrics")
         .and_then(Value::as_array)
         .filter(|items| !items.is_empty())
     {
         let rows = ((metrics.len() + 1) / 2).min(10) as u32;
-        content_height += rows * 40 + rows.saturating_sub(1) * 6;
-        sections += 1;
+        content_height += rows * 48 + rows.saturating_sub(1) * 6 + 12;
+        // Metric min-height, grid gaps, padding, and border.
+        content_sections += 1;
     }
 
     let action_count = payload
@@ -188,13 +197,14 @@ fn estimate_declarative_card_height(payload: &Value, max_height: u32) -> u32 {
                 .count()
         })
         .unwrap_or(0);
-    if action_count > 0 {
-        content_height += 26;
-        sections += 1;
-    }
-
-    // Include the card border, 12px internal padding, and 6px transparent window padding per side.
-    let estimated = content_height + sections.saturating_sub(1) * 8 + 38;
+    // The content column has 16px vertical padding and 7px gaps. The fixed
+    // header/divider use 47px; card border and transparent window inset use 16px.
+    let estimated = 47
+        + 16
+        + content_height
+        + content_sections.saturating_sub(1) * 7
+        + if action_count > 0 { 41 } else { 0 }
+        + 16;
     estimated.clamp(72.min(max_height), max_height.max(1))
 }
 
@@ -610,8 +620,9 @@ mod tests {
 
         assert_eq!(size.width, 280);
         assert_eq!(size.height, 180);
-        // target_x = 1850 - 280 - 8 = 1562
-        assert_eq!(pos.x, 1562);
+        // The right-side preview window aligns to the sidebar edge; its CSS inset
+        // provides the small visible gap.
+        assert_eq!(pos.x, 1570);
         // btn_phys_y = 200 + 50 = 250. center = 250 + (40 - 180)/2 = 180
         assert_eq!(pos.y, 180);
     }

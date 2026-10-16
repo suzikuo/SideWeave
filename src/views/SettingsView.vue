@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import Button from '@/components/ui/button/Button.vue'
+import Switch from '@/components/ui/switch/Switch.vue'
 import { invoke } from '@tauri-apps/api/core'
 /** 简单设置（#/settings）：单列快速设置流；插件管理、系统信息与诊断请前往控制中心 */
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
@@ -162,6 +164,14 @@ async function openControlCenter() {
 
 <template>
   <div v-if="settings" class="settings">
+    <header class="settings-hero">
+      <div class="settings-hero-icon"><Icon name="settings" :size="17" /></div>
+      <div><div class="settings-hero-kicker">PREFERENCES</div><h1>快捷设置</h1><p>调整 SideWeave 的外观、行为和全局快捷键。</p></div>
+    </header>
+
+    <section class="settings-group">
+      <div class="settings-group-heading"><div><h2>外观</h2><p>让工作区适合你的屏幕和使用习惯。</p></div></div>
+      <div class="settings-group-card">
     <div class="card row-card">
       <div class="row-main">
         <div class="row-title">界面缩放</div>
@@ -240,8 +250,13 @@ async function openControlCenter() {
         />
       </div>
     </div>
+      </div>
+    </section>
 
 <!-- 停靠位置 -->
+    <section class="settings-group">
+      <div class="settings-group-heading"><div><h2>侧边栏行为</h2><p>设置停靠方式、展开逻辑和预览响应。</p></div></div>
+      <div class="settings-group-card">
     <div class="card row-card">
       <div class="row-main">
         <div class="row-title">停靠位置</div>
@@ -265,14 +280,7 @@ async function openControlCenter() {
         <div class="row-title">悬停展开侧边栏</div>
         <div class="row-desc">鼠标移到屏幕边缘时自动展开</div>
       </div>
-      <input
-        type="checkbox"
-        class="switch"
-        role="switch"
-        aria-label="悬停展开侧边栏"
-        :checked="settings.general.enable_mouse_hover"
-        @change="change('general', 'enable_mouse_hover', ($event.target as HTMLInputElement).checked)"
-      />
+      <Switch :model-value="settings.general.enable_mouse_hover" aria-label="悬停展开侧边栏" @update:model-value="change('general', 'enable_mouse_hover', $event)" />
     </div>
 
     <!-- 自动隐藏延迟 -->
@@ -308,8 +316,13 @@ async function openControlCenter() {
         @commit="(v) => change('general', 'hover_preview_delay', v)"
       />
     </div>
+      </div>
+    </section>
 
     <!-- 运行模式 -->
+    <section class="settings-group">
+      <div class="settings-group-heading"><div><h2>系统</h2><p>在响应速度、资源占用和后台启动之间选择。</p></div></div>
+      <div class="settings-group-card">
     <div class="card row-card">
       <div class="row-main">
         <div class="row-title">运行模式</div>
@@ -339,17 +352,15 @@ async function openControlCenter() {
         <div class="row-title">开机自启</div>
         <div class="row-desc">登录 Windows 后自动启动 SideWeave</div>
       </div>
-      <input
-        type="checkbox"
-        class="switch"
-        role="switch"
-        aria-label="开机自启"
-        :checked="autostartRef"
-        @change="change('general', 'run_on_startup', ($event.target as HTMLInputElement).checked)"
-      />
+      <Switch :model-value="autostartRef" aria-label="开机自启" @update:model-value="change('general', 'run_on_startup', $event)" />
     </div>
+      </div>
+    </section>
 
     <!-- 显示/隐藏侧边栏热键 -->
+    <section class="settings-group">
+      <div class="settings-group-heading"><div><h2>快捷键</h2><p>录制全局快捷键；留空表示停用。</p></div></div>
+      <div class="settings-group-card">
     <div class="card row-card">
       <div class="row-main">
         <div class="row-title">显示 / 隐藏侧边栏热键</div>
@@ -372,17 +383,22 @@ async function openControlCenter() {
         @commit="changeControlCenterHotkey"
       />
     </div>
+      </div>
+    </section>
 
     <!-- 市场/云端：插件中心与皮肤中心入口（位于控制中心导航） -->
+    <section class="settings-group">
+      <div class="settings-group-heading"><div><h2>更多管理</h2><p>打开完整控制中心，管理插件、市场和系统诊断。</p></div></div>
+      <div class="settings-group-card">
     <div class="card row-card more-card">
       <div class="row-main">
         <div class="row-title">市场 / 云端</div>
         <div class="row-desc">插件中心与皮肤中心在控制中心左侧导航</div>
       </div>
-      <button class="btn accent" type="button" @click="openControlCenter">
+      <Button variant="default" size="sm" class="btn accent" type="button" @click="openControlCenter">
         <Icon name="blocks" :size="14" />
         打开市场
-      </button>
+      </Button>
     </div>
 
     <!-- 更多设置：入口到完整控制中心 -->
@@ -391,11 +407,13 @@ async function openControlCenter() {
         <div class="row-title">更多设置</div>
         <div class="row-desc">插件管理、系统信息与诊断在控制中心</div>
       </div>
-      <button class="btn accent" type="button" @click="openControlCenter">
+      <Button variant="default" size="sm" class="btn accent" type="button" @click="openControlCenter">
         <Icon name="layout-dashboard" :size="14" />
         打开控制中心
-      </button>
+      </Button>
     </div>
+      </div>
+    </section>
 
     <Toast :message="toast" :kind="toastKind" @done="toast = ''" />
   </div>
@@ -446,7 +464,7 @@ async function openControlCenter() {
   align-items: center;
   gap: 6px;
   padding: 7px 14px;
-  border-radius: 10px;
+  border-radius: var(--radius, 6px);
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text);
@@ -498,25 +516,26 @@ async function openControlCenter() {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 2px;
+  gap: 1px;
   padding: 3px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--border) 40%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg, 10px);
+  background: var(--surface);
   flex: none;
 }
 .segmented button {
   padding: 5px 12px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius, 6px);
   background: transparent;
   color: var(--text-muted);
   font-size: 12px;
 }
 .segmented button.on {
-  background: var(--surface);
+  background: var(--surface-subtle);
   color: var(--text);
   font-weight: 600;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 75%, transparent);
 }
 
 .swatches {
@@ -544,4 +563,41 @@ async function openControlCenter() {
   background: transparent;
   padding: 0;
 }
+
+.settings {
+  display: flex;
+  max-width: 760px;
+  flex-direction: column;
+  gap: 22px;
+  margin: 0 auto;
+  padding: 18px 22px 30px;
+}
+.settings-hero { display: flex; align-items: center; gap: 12px; padding: 2px 0 4px; }
+.settings-hero-icon { display: grid; width: 36px; height: 36px; flex: none; place-items: center; border: 1px solid var(--border); border-radius: 8px; background: var(--muted); color: var(--foreground); }
+.settings-hero-kicker { color: var(--muted-foreground); font-size: 9px; font-weight: 650; letter-spacing: .08em; }
+.settings-hero h1 { margin: 2px 0 0; font-size: 18px; font-weight: 650; letter-spacing: -.03em; }
+.settings-hero p,
+.settings-group-heading p { margin: 4px 0 0; color: var(--muted-foreground); font-size: 10px; line-height: 1.45; }
+.settings-group { display: flex; flex-direction: column; gap: 9px; }
+.settings-group-heading h2 { margin: 0; font-size: 12px; font-weight: 600; }
+.settings-group-card {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--card) calc(var(--component-opacity, 1) * 100%), transparent);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 3%);
+}
+.settings-group-card .row-card { min-height: 58px; margin: 0; padding: 12px 14px; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.settings-group-card .row-card + .row-card { border-top: 1px solid var(--border); }
+.settings-group-card .row-title { font-size: 11px; font-weight: 550; }
+.settings-group-card .row-desc { color: var(--muted-foreground); font-size: 10px; }
+.settings-group-card .more-card { min-height: 64px; }
+.settings-group-card .more-card:first-child { border-top: 0; }
+.settings-group-card .btn { border-radius: 6px; }
+.settings-group-card .switch { width: 34px; height: 19px; border: 1px solid var(--border); background: var(--input); }
+.settings-group-card .switch::after { width: 15px; height: 15px; background: var(--background); box-shadow: 0 1px 2px rgb(0 0 0 / 15%); }
+.settings-group-card .switch:checked::after { transform: translateX(15px); }
+.settings-group-card .segmented { gap: 2px; padding: 3px; border-radius: 7px; background: var(--muted); }
+.settings-group-card .segmented button { min-height: 27px; border-radius: 5px; background: transparent; font-size: 10px; }
+.settings-group-card .segmented button.on { background: var(--background); box-shadow: 0 1px 2px rgb(0 0 0 / 8%); }
 </style>

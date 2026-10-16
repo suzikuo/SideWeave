@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import Button from '@/components/ui/button/Button.vue'
+import Card from '@/components/ui/card/Card.vue'
+import Switch from '@/components/ui/switch/Switch.vue'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
@@ -10,6 +13,8 @@ import Toast from '../ui/Toast.vue'
 import {
   getState,
   EVENTS,
+  chooseBackgroundImage,
+  clearBackgroundImage,
   openDataDir,
   restartApp,
   setPluginEnabled,
@@ -27,7 +32,7 @@ import {
 } from '../lib/api'
 import { marketInstalled, marketRefresh, pluginRegistryList } from '../lib/marketApi'
 import type { RuntimePluginInfo } from '../lib/marketApi'
-import { applySkinWithRecommendedOpacity, OPACITY_SETTING_KEYS, resolveSkinOpacityDefaults, type InstalledSkinAppearance } from '../lib/skinAppearance'
+import { applySkinWithRecommendedOpacity, OPACITY_SETTING_KEYS, resolveSkinOpacityDefaults, type InstalledSkinAppearance, type OpacitySettingKey } from '../lib/skinAppearance'
 import PluginCenterView from './PluginCenterView.vue'
 import SkinCenterView from './SkinCenterView.vue'
 import {
@@ -74,6 +79,26 @@ const sections: { id: Section; label: string; icon: string }[] = [
   { id: 'market-skins', label: '皮肤中心', icon: 'palette' },
   { id: 'about', label: '关于', icon: 'info' }
 ]
+const primarySections = sections.slice(0, 5)
+const librarySections = sections.slice(5, 7)
+const systemSections = sections.slice(7)
+const sidebarCollapsed = ref(false)
+const narrowSidebarExpanded = ref(false)
+const sidebarBreakpoint = window.matchMedia('(max-width: 900px)')
+const isNarrowSidebar = ref(sidebarBreakpoint.matches)
+const sidebarCompact = computed(() => isNarrowSidebar.value ? !narrowSidebarExpanded.value : sidebarCollapsed.value)
+function toggleSidebar() {
+  if (isNarrowSidebar.value) {
+    narrowSidebarExpanded.value = !narrowSidebarExpanded.value
+  } else {
+    sidebarCollapsed.value = !sidebarCollapsed.value
+  }
+}
+function onSidebarBreakpointChange(event: MediaQueryListEvent) {
+  isNarrowSidebar.value = event.matches
+  narrowSidebarExpanded.value = false
+}
+const activeSection = computed(() => sections.find((item) => item.id === section.value) ?? sections[0])
 
 const toast = ref('')
 const toastKind = ref<'info' | 'error' | 'success'>('info')
@@ -87,6 +112,7 @@ function showToast(message: string, kind: 'info' | 'error' | 'success' = 'info')
 
 const ACCENT_SWATCHES = ['#006874', '#006A6A', '#4F6354', '#7A5900', '#6750A4']
 const isWindows = /Windows/i.test(navigator.userAgent)
+const backgroundImageBusy = ref(false)
 
 const settings = computed<Settings | null>(() => settingsRef.value)
 const props = defineProps<{ active: boolean }>()
@@ -290,16 +316,34 @@ async function changePerformanceProfile(profile: PerformanceProfile) {
 
 // ---------- 皮肤选项：内置 + 市场已安装的用户皮肤 ----------
 
-const opacityControls = [
-  { key: 'sidebar_panel_opacity', label: '侧边栏面板不透明度', description: '只调面板底色，图标与文字保持清晰' },
-  { key: 'sidebar_image_opacity', label: '侧边栏背景图片不透明度', description: '单独调节皮肤背景图片' },
-  { key: 'detail_panel_opacity', label: '详情页面板不透明度', description: '只调面板底色，不影响详情内容' },
-  { key: 'control_panel_opacity', label: '控制中心面板不透明度', description: '与详情页面板独立调节' },
-  { key: 'detail_image_opacity', label: '详情页与控制中心背景图片', description: '单独调节皮肤背景图片的可见度' },
-  { key: 'component_opacity', label: '卡片与组件底色不透明度', description: '只调卡片和控件表面，不会淡化文字与图标' }
-] as const
 const userSkins = ref<InstalledSkinAppearance[]>([])
 const activeSkinId = computed(() => settingsRef.value?.appearance.skin ?? 'default')
+const opacityControls = computed(() => {
+  const controls: { key: OpacitySettingKey; label: string; description: string }[] = [
+    { key: 'sidebar_panel_opacity', label: '侧边栏面板不透明度', description: '只调面板底色，图标与文字保持清晰' },
+    { key: 'sidebar_image_opacity', label: '侧边栏背景图片不透明度', description: '单独调节皮肤背景图片' },
+    { key: 'preview_panel_opacity', label: '预览页面板不透明度', description: '调整预览面板及宿主绘制卡片、条目的底色，不影响文字' },
+    { key: 'preview_image_opacity', label: '预览页背景图片不透明度', description: '单独调整预览窗口背景图片的显示强度' }
+  ]
+  if (activeSkinId.value === 'default') {
+    controls.push({
+      key: 'control_panel_opacity',
+      label: '详情页与控制中心面板不透明度',
+      description: '统一调节两处面板底色，不影响页面内容'
+    })
+  } else {
+    controls.push(
+      { key: 'detail_panel_opacity', label: '详情页面板不透明度', description: '只调面板底色，不影响详情内容' },
+      { key: 'control_panel_opacity', label: '控制中心面板不透明度', description: '与详情页面板分别调节' }
+    )
+  }
+  controls.push({
+    key: 'component_opacity',
+    label: '卡片与组件底色不透明度',
+    description: '只调卡片和控件表面，不会淡化文字与图标'
+  })
+  return controls
+})
 const activeSkinName = computed(() => {
   if (!activeSkinId.value.startsWith('user:')) return '默认皮肤'
   const id = activeSkinId.value.slice('user:'.length)
@@ -365,6 +409,22 @@ const effectiveMode = computed(() => {
   if (!mode || mode === 'system') return systemDark.value ? 'dark' : 'light'
   return mode
 })
+const bubbleBackgroundColorPickerValue = computed(() => {
+  const customColor = settings.value?.notifications.bubble_background_color
+  if (customColor) return customColor
+
+  // The color input cannot represent "follow skin" as an empty value. Show the
+  // active bubble surface instead of a misleading white placeholder.
+  const skinColor = getComputedStyle(document.documentElement)
+    .getPropertyValue('--notification-bubble-background')
+    .trim()
+  if (/^#[0-9a-f]{6}$/i.test(skinColor)) return skinColor
+  const rgb = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i.exec(skinColor)
+  if (rgb) {
+    return `#${rgb.slice(1, 4).map((part) => Number(part).toString(16).padStart(2, '0')).join('')}`
+  }
+  return effectiveMode.value === 'light' ? '#ffffff' : '#101113'
+})
 const effectiveModeLabel = computed(() => (effectiveMode.value === 'dark' ? '深色' : '浅色'))
 
 const themeModeLabel = computed(() => {
@@ -380,10 +440,12 @@ const fmtPercent = (v: number) => `${Math.round(v * 100)}%`
 
 onMounted(() => {
   darkQuery.addEventListener('change', onSchemeChange)
+  sidebarBreakpoint.addEventListener('change', onSidebarBreakpointChange)
   document.addEventListener('visibilitychange', onDocumentVisibilityChange)
 })
 onUnmounted(() => {
   darkQuery.removeEventListener('change', onSchemeChange)
+  sidebarBreakpoint.removeEventListener('change', onSidebarBreakpointChange)
   document.removeEventListener('visibilitychange', onDocumentVisibilityChange)
   if (sysTimer !== undefined) window.clearInterval(sysTimer)
 })
@@ -443,6 +505,42 @@ async function change(category: string, key: string, value: unknown) {
   } catch (e) {
     showToast(String(e), 'error')
   }
+}
+
+async function onChooseBackgroundImage() {
+  if (backgroundImageBusy.value) return
+  backgroundImageBusy.value = true
+  try {
+    const fresh = await chooseBackgroundImage()
+    if (fresh) {
+      settingsRef.value = fresh
+      showToast('背景图片已应用', 'success')
+    }
+  } catch (error) {
+    showToast(String(error), 'error')
+  } finally {
+    backgroundImageBusy.value = false
+  }
+}
+
+async function onClearBackgroundImage() {
+  if (!settings.value?.appearance.background_image_path) return
+  try {
+    settingsRef.value = await clearBackgroundImage()
+    showToast('已清除背景图片', 'success')
+  } catch (error) {
+    showToast(String(error), 'error')
+  }
+}
+
+let pendingBubbleBackgroundColor = ''
+function changeBubbleBackgroundColor(event: Event) {
+  const color = (event.target as HTMLInputElement).value
+  if (!color || color === pendingBubbleBackgroundColor || color === settings.value?.notifications.bubble_background_color) return
+  pendingBubbleBackgroundColor = color
+  void change('notifications', 'bubble_background_color', color).finally(() => {
+    if (pendingBubbleBackgroundColor === color) pendingBubbleBackgroundColor = ''
+  })
 }
 
 async function togglePlugin(id: string, enabled: boolean) {
@@ -743,46 +841,75 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div v-if="settings" class="settings">
-    <!-- 左侧导航：品牌块 + 分区导航 + 版本脚注，随面板滚动保持吸顶 -->
-    <aside class="nav">
-      <div class="brand">
-        <span class="brand-mark">AT</span>
-        <span class="brand-text">
-          <strong>SideWeave</strong>
-          <small>控制中心</small>
-        </span>
-      </div>
-      <nav class="nav-list" aria-label="控制中心导航">
+  <div v-if="settings" class="control-layout" :class="{ 'sidebar-compact': sidebarCompact, 'sidebar-narrow-expanded': isNarrowSidebar && !sidebarCompact }">
+    <aside id="control-center-sidebar" class="control-sidebar">
+      <div class="workspace-brand">
+        <span class="brand-mark"><Icon name="command" :size="17" /></span>
+        <span class="brand-copy"><strong>SideWeave</strong></span>
+        <span v-if="!sidebarCompact" class="brand-version">v{{ appVersionRef || '—' }}</span>
         <button
-          v-for="s in sections"
+          class="sidebar-collapse"
+          type="button"
+          :title="sidebarCompact ? '展开侧边栏' : '收起侧边栏'"
+          :aria-label="sidebarCompact ? '展开侧边栏' : '收起侧边栏'"
+          :aria-expanded="!sidebarCompact"
+          aria-controls="control-center-sidebar"
+          @click="toggleSidebar"
+        >
+          <Icon name="chevron-left" :size="14" :class="{ flipped: sidebarCompact }" />
+        </button>
+      </div>
+      <div class="sidebar-section-label">设置</div>
+      <nav class="control-nav" aria-label="控制中心导航">
+        <Button
+          variant="ghost"
+          size="sm"
+          v-for="s in primarySections"
           :key="s.id"
           class="nav-item"
           :class="{ active: section === s.id }"
+          type="button"
+          :title="s.label"
+          :aria-label="s.label"
           @click="section = s.id"
         >
           <Icon :name="s.icon" :size="15" />
           <span>{{ s.label }}</span>
-        </button>
+          <span v-if="s.id === 'plugins'" class="nav-count">{{ pluginStat.enabled }}</span>
+        </Button>
       </nav>
-      <div class="nav-foot">
-        <span>v{{ appVersionRef || '—' }}</span>
-        <span
-          class="foot-dot"
-          :class="effectiveMode"
-          :title="`实际生效主题：${effectiveModeLabel}`"
-        />
+      <div class="sidebar-section-label">资源库</div>
+      <nav class="control-nav" aria-label="资源库导航">
+        <Button v-for="s in librarySections" :key="s.id" variant="ghost" size="sm" class="nav-item" :class="{ active: section === s.id }" type="button" :title="s.label" :aria-label="s.label" @click="section = s.id">
+          <Icon :name="s.icon" :size="15" /><span>{{ s.label }}</span>
+        </Button>
+      </nav>
+      <div class="sidebar-section-label">系统</div>
+      <nav class="control-nav" aria-label="系统导航">
+        <Button v-for="s in systemSections" :key="s.id" variant="ghost" size="sm" class="nav-item" :class="{ active: section === s.id }" type="button" :title="s.label" :aria-label="s.label" @click="section = s.id">
+          <Icon :name="s.icon" :size="15" /><span>{{ s.label }}</span>
+        </Button>
+      </nav>
+      <div class="sidebar-bottom">
+        <span class="sidebar-avatar">SW</span>
+        <span class="sidebar-account"><strong>SideWeave</strong><small>{{ effectiveModeLabel }}主题</small></span>
+        <span class="foot-dot" :class="effectiveMode" :title="`实际生效主题：${effectiveModeLabel}`" />
       </div>
     </aside>
 
-    <div class="pane">
+    <main class="workspace-main">
+      <header class="workspace-bar">
+        <div class="breadcrumbs"><span>SideWeave</span><Icon name="chevron-right" :size="14" /><strong>{{ activeSection.label }}</strong></div>
+      </header>
+      <div class="workspace-scroll">
+        <div class="pane" :class="{ 'pane-fill': section === 'market-plugins' || section === 'market-skins' }">
       <!-- 概览 -->
       <template v-if="section === 'overview'">
         <section>
           <h2>概览</h2>
 
           <!-- 应用卡片 -->
-          <div class="app-card">
+          <Card class="app-card">
             <span class="brand-mark lg">AT</span>
             <div class="app-meta">
               <strong>SideWeave</strong>
@@ -793,7 +920,7 @@ onUnmounted(() => {
               <span class="badge">Rust</span>
               <span class="badge">Tauri</span>
             </div>
-          </div>
+          </Card>
 
           <!-- 系统信息网格 -->
           <h3 class="group-label">系统信息</h3>
@@ -812,7 +939,7 @@ onUnmounted(() => {
               <small class="stat-sub">每 30 秒自动刷新</small>
             </div>
             <div class="stat-card">
-              <span class="stat-label"><Icon name="layout-dashboard" :size="13" /> 工作区</span>
+              <span class="stat-label"><Icon name="layout-dashboard" :size="13" /> 可用屏幕区域</span>
               <strong>{{ workAreaText }}</strong>
               <small class="stat-sub">{{ workAreaScale }}</small>
             </div>
@@ -856,18 +983,18 @@ onUnmounted(() => {
           <!-- 快捷操作 -->
           <h3 class="group-label">快捷操作</h3>
           <div class="quick-list">
-            <button class="quick-btn" type="button" @click="onOpenDataDir">
+            <Button variant="outline" size="sm" class="quick-btn" type="button" @click="onOpenDataDir">
               <Icon name="folder" :size="15" />
               <span>打开数据目录</span>
-            </button>
-            <button class="quick-btn" type="button" @click="onRestartApp">
+            </Button>
+            <Button variant="outline" size="sm" class="quick-btn" type="button" @click="onRestartApp">
               <Icon name="refresh" :size="15" />
               <span>重启应用</span>
-            </button>
-            <button class="quick-btn" type="button" @click="onToggleSidebar">
+            </Button>
+            <Button variant="outline" size="sm" class="quick-btn" type="button" @click="onToggleSidebar">
               <Icon name="eye-off" :size="15" />
               <span>显示 / 隐藏侧边栏</span>
-            </button>
+            </Button>
           </div>
         </section>
       </template>
@@ -881,42 +1008,21 @@ onUnmounted(() => {
               <div class="row-title">开机自启</div>
               <div class="row-desc">登录 Windows 后自动启动 SideWeave</div>
             </div>
-            <input
-              type="checkbox"
-              class="switch"
-              role="switch"
-              aria-label="开机自启"
-              :checked="autostartRef"
-              @change="change('general', 'run_on_startup', ($event.target as HTMLInputElement).checked)"
-            />
+            <Switch :model-value="autostartRef" aria-label="开机自启" @update:model-value="change('general', 'run_on_startup', $event)" />
           </div>
           <div class="card row-card">
             <div class="row-main">
               <div class="row-title">控制中心默认置顶</div>
               <div class="row-desc">下次打开控制中心时置于其他窗口上方，可用标题栏按钮临时切换</div>
             </div>
-            <input
-              type="checkbox"
-              class="switch"
-              role="switch"
-              aria-label="控制中心默认置顶"
-              :checked="settings.general.control_center_always_on_top"
-              @change="change('general', 'control_center_always_on_top', ($event.target as HTMLInputElement).checked)"
-            />
+            <Switch :model-value="settings.general.control_center_always_on_top" aria-label="控制中心默认置顶" @update:model-value="change('general', 'control_center_always_on_top', $event)" />
           </div>
           <div class="card row-card">
             <div class="row-main">
               <div class="row-title">悬停展开侧边栏</div>
               <div class="row-desc">鼠标移到屏幕边缘时自动展开</div>
             </div>
-            <input
-              type="checkbox"
-              class="switch"
-              role="switch"
-              aria-label="悬停展开侧边栏"
-              :checked="settings.general.enable_mouse_hover"
-              @change="change('general', 'enable_mouse_hover', ($event.target as HTMLInputElement).checked)"
-            />
+            <Switch :model-value="settings.general.enable_mouse_hover" aria-label="悬停展开侧边栏" @update:model-value="change('general', 'enable_mouse_hover', $event)" />
           </div>
           <div class="card row-card">
             <div class="row-main">
@@ -1032,6 +1138,17 @@ onUnmounted(() => {
               </button>
             </div>
           </div>
+          <div class="card row-card">
+            <div class="row-main">
+              <div class="row-title">毛玻璃效果</div>
+              <div class="row-desc">为卡片和插件中心控件添加轻微背景模糊；背景图片模糊度单独设置</div>
+            </div>
+            <Switch
+              :model-value="settings.appearance.glass_effect_enabled"
+              aria-label="毛玻璃效果"
+              @update:model-value="change('appearance', 'glass_effect_enabled', $event)"
+            />
+          </div>
           <!-- 皮肤：表现形式，与主题正交，每个皮肤自带浅/深 -->
           <div class="card row-card">
             <div class="row-main">
@@ -1071,6 +1188,85 @@ onUnmounted(() => {
                 aria-label="自定义强调色"
                 @change="change('appearance', 'accent_color', ($event.target as HTMLInputElement).value)"
               />
+            </div>
+          </div>
+          <div class="card background-image-card">
+            <div class="row-main background-image-intro">
+              <div class="row-title">背景图片</div>
+              <div class="row-desc">为应用设置背景图片。卡片和对话框保持不透明以保证可读性。</div>
+            </div>
+            <div class="background-image-sidebar-option">
+              <div class="row-main">
+                <div class="row-title">应用于侧边栏</div>
+                <div class="row-desc">关闭后，背景图片仍应用于控制中心和详情页。</div>
+              </div>
+              <Switch
+                :model-value="settings.appearance.background_image_apply_to_sidebar"
+                aria-label="背景图片应用于侧边栏"
+                @update:model-value="change('appearance', 'background_image_apply_to_sidebar', $event)"
+              />
+            </div>
+            <div class="background-image-picker">
+              <button
+                class="opacity-reset-button"
+                type="button"
+                :disabled="backgroundImageBusy"
+                @click="onChooseBackgroundImage"
+              >{{ backgroundImageBusy ? '正在导入…' : '选择图片…' }}</button>
+              <button
+                class="opacity-reset-button"
+                type="button"
+                :disabled="backgroundImageBusy || !settings.appearance.background_image_path"
+                @click="onClearBackgroundImage"
+              >清除</button>
+              <span class="background-image-name" :title="settings.appearance.background_image_name">
+                {{ settings.appearance.background_image_name || '未选择图片' }}
+              </span>
+            </div>
+            <label class="background-image-fit">
+              <span>显示方式</span>
+              <select
+                class="mirror-select"
+                :value="settings.appearance.background_image_fit"
+                aria-label="背景图片显示方式"
+                @change="change('appearance', 'background_image_fit', ($event.target as HTMLSelectElement).value)"
+              >
+                <option value="cover">适应</option>
+                <option value="fill">填充</option>
+                <option value="contain">完整显示</option>
+              </select>
+            </label>
+            <div class="background-image-controls">
+              <div class="background-image-control">
+                <div class="background-image-control-heading">
+                  <span>不透明度</span>
+                  <span>{{ fmtPercent(settings.appearance.background_image_opacity) }}</span>
+                </div>
+                <RangeSlider
+                  :model-value="settings.appearance.background_image_opacity"
+                  :min="0"
+                  :max="1"
+                  :step="0.05"
+                  :format="fmtPercent"
+                  aria-label="背景图片不透明度"
+                  @commit="(v) => change('appearance', 'background_image_opacity', v)"
+                />
+              </div>
+              <div class="background-image-control">
+                <div class="background-image-control-heading">
+                  <span>模糊</span>
+                  <span>{{ fmtPx(settings.appearance.background_image_blur) }}</span>
+                </div>
+                <RangeSlider
+                  :model-value="settings.appearance.background_image_blur"
+                  :min="0"
+                  :max="24"
+                  :step="1"
+                  :format="fmtPx"
+                  aria-label="背景图片模糊度"
+                  @commit="(v) => change('appearance', 'background_image_blur', v)"
+                />
+              </div>
             </div>
           </div>
           <div class="card row-card">
@@ -1194,7 +1390,7 @@ onUnmounted(() => {
               <input
                 type="color"
                 class="swatch custom"
-                :value="settings.notifications.desktop_background_color || '#23252c'"
+                :value="settings.notifications.desktop_background_color || '#18181b'"
                 aria-label="桌面通知背景色"
                 @change="change('notifications', 'desktop_background_color', ($event.target as HTMLInputElement).value)"
               />
@@ -1230,9 +1426,10 @@ onUnmounted(() => {
               <input
                 type="color"
                 class="swatch custom"
-                :value="settings.notifications.bubble_background_color || '#fffdf7'"
+                :value="bubbleBackgroundColorPickerValue"
                 aria-label="侧边栏气泡背景色"
-                @change="change('notifications', 'bubble_background_color', ($event.target as HTMLInputElement).value)"
+                @input="changeBubbleBackgroundColor"
+                @change="changeBubbleBackgroundColor"
               />
               <button
                 class="opacity-reset-button"
@@ -1275,7 +1472,7 @@ onUnmounted(() => {
                 <div class="row-desc">{{ p.description }}</div>
               </div>
               <div class="row-side">
-                <button
+                <Button variant="outline" size="sm"
                   class="icon-btn"
                   :disabled="i === 0"
                   title="上移"
@@ -1283,8 +1480,8 @@ onUnmounted(() => {
                   @click="movePlugin(p.id, -1)"
                 >
                   <Icon name="chevron-up" :size="15" />
-                </button>
-                <button
+                </Button>
+                <Button variant="outline" size="sm"
                   class="icon-btn"
                   :disabled="i === pluginsRef.length - 1"
                   title="下移"
@@ -1292,15 +1489,15 @@ onUnmounted(() => {
                   @click="movePlugin(p.id, 1)"
                 >
                   <Icon name="chevron-down" :size="15" />
-                </button>
-                <button
+                </Button>
+                <Button variant="outline" size="sm"
                   class="icon-btn"
                   :title="p.sidebar_visible ? '从侧边栏隐藏' : '在侧边栏显示'"
                   :aria-label="p.sidebar_visible ? `从侧边栏隐藏 ${p.name}` : `在侧边栏显示 ${p.name}`"
                   @click="togglePluginSidebar(p.id, !p.sidebar_visible)"
                 >
                   <Icon :name="p.sidebar_visible ? 'eye' : 'eye-off'" :size="15" />
-                </button>
+                </Button>
                 <button
                   class="plugin-permission-button"
                   type="button"
@@ -1308,13 +1505,10 @@ onUnmounted(() => {
                   :title="`管理 ${p.name} 的权限`"
                   @click="togglePluginPermissions(p.id)"
                 >权限</button>
-                <input
-                  type="checkbox"
-                  class="switch"
-                  role="switch"
+                <Switch
+                  :model-value="p.enabled"
                   :aria-label="`${p.enabled ? '禁用' : '启用'}插件 ${p.name}`"
-                  :checked="p.enabled"
-                  @change="togglePlugin(p.id, ($event.target as HTMLInputElement).checked)"
+                  @update:model-value="togglePlugin(p.id, $event)"
                 />
               </div>
             </div>
@@ -1327,15 +1521,12 @@ onUnmounted(() => {
                       <div class="row-title">{{ permission.label }}</div>
                       <div class="row-desc">{{ permission.description }}</div>
                     </div>
-                    <input
+                    <Switch
                       v-if="permission.enforceable"
-                      type="checkbox"
-                      class="switch"
-                      role="switch"
+                      :model-value="permissionIsGranted(p.id, permission.id)"
                       :aria-label="`${p.name}：${permission.label}`"
-                      :checked="permissionIsGranted(p.id, permission.id)"
                       :disabled="permissionSaving[`${p.id}:${permission.id}`]"
-                      @change="changePluginPermission(p.id, permission.id, ($event.target as HTMLInputElement).checked)"
+                      @update:model-value="changePluginPermission(p.id, permission.id, $event)"
                     />
                     <span v-else class="permission-uncontrolled">宿主无法拦截</span>
                   </div>
@@ -1358,7 +1549,7 @@ onUnmounted(() => {
         <section class="fill">
           <h2>插件中心</h2>
           <div class="fill-body">
-            <PluginCenterView />
+            <PluginCenterView class="fill-content" />
           </div>
         </section>
       </template>
@@ -1368,7 +1559,7 @@ onUnmounted(() => {
         <section class="fill">
           <h2>皮肤中心</h2>
           <div class="fill-body">
-            <SkinCenterView />
+            <SkinCenterView class="fill-content" />
           </div>
         </section>
       </template>
@@ -1393,7 +1584,7 @@ onUnmounted(() => {
               <div class="row-title">数据目录</div>
               <div class="row-desc">{{ dataDirRef || '—' }}</div>
             </div>
-            <button class="btn" @click="onOpenDataDir"><Icon name="folder" :size="14" /> 打开</button>
+            <Button variant="outline" size="sm" class="btn" @click="onOpenDataDir"><Icon name="folder" :size="14" /> 打开</Button>
           </div>
           <div class="card row-card">
             <div class="row-main">
@@ -1416,7 +1607,7 @@ onUnmounted(() => {
               <div class="row-title">重启应用</div>
               <div class="row-desc">保存的设置将在重启后完整生效</div>
             </div>
-            <button class="btn" @click="onRestartApp"><Icon name="refresh" :size="14" /> 重启</button>
+            <Button variant="outline" size="sm" class="btn" @click="onRestartApp"><Icon name="refresh" :size="14" /> 重启</Button>
           </div>
 
           <h3 class="group-label">GitHub 网络</h3>
@@ -1447,7 +1638,7 @@ onUnmounted(() => {
                 placeholder="https://mirror.example/https://"
               />
             </div>
-            <button class="btn accent" @click="saveCustomGithubMirror">保存</button>
+            <Button variant="default" size="sm" class="btn accent" @click="saveCustomGithubMirror">保存</Button>
           </div>
 
           <!-- 在线更新 -->
@@ -1487,7 +1678,7 @@ onUnmounted(() => {
               </div>
             </div>
             <div class="update-actions">
-              <button
+              <Button variant="outline" size="sm"
                 class="btn"
                 :class="{ accent: updateState === 'available' }"
                 :disabled="updateState === 'checking' || updateState === 'downloading'"
@@ -1495,23 +1686,23 @@ onUnmounted(() => {
               >
                 <Icon name="refresh" :size="14" />
                 {{ updateState === 'idle' ? '检查更新' : updateState === 'checking' ? '检查中…' : updateState === 'downloading' ? '下载中…' : updateState === 'available' ? '下载并安装' : '重新检查' }}
-              </button>
-              <button
+              </Button>
+              <Button variant="outline" size="sm"
                 v-if="updateState === 'available'"
                 class="btn"
                 title="检查更新时不再提示此版本（直至新版本发布）"
                 @click="ignoreVersion"
               >
                 忽略此版本
-              </button>
-              <button
+              </Button>
+              <Button variant="outline" size="sm"
                 v-else-if="updateState === 'latest' && ignoredVersion"
                 class="btn"
                 title="恢复对该版本的更新提示"
                 @click="unignoreVersion"
               >
                 撤销忽略 v{{ ignoredVersion }}
-              </button>
+              </Button>
             </div>
           </div>
 
@@ -1525,17 +1716,17 @@ onUnmounted(() => {
               </div>
             </div>
             <div class="update-actions">
-              <button class="btn" :disabled="backupBusy" @click="onBackupExport">
+              <Button variant="outline" size="sm" class="btn" :disabled="backupBusy" @click="onBackupExport">
                 <Icon name="folder" :size="14" /> 导出备份
-              </button>
-              <button
+              </Button>
+              <Button variant="outline" size="sm"
                 class="btn"
                 :disabled="backupBusy"
                 title="导入备份会覆盖当前全部数据"
                 @click="onBackupImport"
               >
                 <Icon name="refresh" :size="14" /> 导入备份
-              </button>
+              </Button>
             </div>
           </div>
 
@@ -1561,7 +1752,9 @@ onUnmounted(() => {
           </div>
         </section>
       </template>
-    </div>
+        </div>
+      </div>
+    </main>
     <Toast :message="toast" :kind="toastKind" @done="toast = ''" />
   </div>
 </template>
@@ -1639,7 +1832,7 @@ onUnmounted(() => {
   gap: 8px;
   padding: 8px 12px;
   border: none;
-  border-radius: 999px;
+  border-radius: var(--radius, 6px);
   background: transparent;
   color: var(--text-muted);
   font-size: 13px;
@@ -1653,7 +1846,7 @@ onUnmounted(() => {
   color: var(--text);
 }
 .nav-item.active {
-  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface-subtle));
   color: var(--text);
   font-weight: 600;
 }
@@ -2034,7 +2227,7 @@ kbd {
   vertical-align: 1px;
 }
 
-/* ---------- 控件（沿用既有 M3 风格） ---------- */
+/* ---------- Shared shadcn-inspired controls ---------- */
 
 /* switch 样式 */
 .switch {
@@ -2068,24 +2261,25 @@ kbd {
 
 .segmented {
   display: flex;
-  gap: 2px;
+  gap: 1px;
   padding: 3px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--border) 40%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg, 10px);
+  background: var(--surface);
 }
 .segmented button {
   padding: 5px 12px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius, 6px);
   background: transparent;
   color: var(--text-muted);
   font-size: 12px;
 }
 .segmented button.on {
-  background: var(--surface);
+  background: var(--surface-subtle);
   color: var(--text);
   font-weight: 600;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 75%, transparent);
 }
 
 .swatches {
@@ -2141,7 +2335,7 @@ kbd {
   align-items: center;
   gap: 6px;
   padding: 7px 14px;
-  border-radius: 10px;
+  border-radius: var(--radius, 6px);
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text);
@@ -2274,6 +2468,303 @@ section.fill h2 {
 .opacity-reset-button:disabled {
   cursor: wait;
   opacity: .65;
+}
+
+.background-image-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 13px;
+  padding: 14px 15px 16px;
+}
+.background-image-intro { min-width: 0; }
+.background-image-sidebar-option { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.background-image-picker {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.background-image-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.background-image-fit {
+  display: grid;
+  width: min(100%, 280px);
+  gap: 6px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+.background-image-fit .mirror-select { width: 100%; min-width: 0; }
+.background-image-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.background-image-control { min-width: 0; }
+.background-image-control-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+.background-image-control :deep(.rslider) { display: flex; width: 100%; margin-top: 8px; }
+.background-image-control :deep(input[type='range']) { width: 100%; }
+
+/* Shadcn-style workspace shell and settings surfaces. */
+.control-layout {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  color: var(--foreground);
+  background: transparent;
+}
+
+.control-sidebar {
+  display: flex;
+  flex: 0 0 218px;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  padding: 14px 10px 10px;
+  transition: flex-basis .18s ease, padding .18s ease;
+  border-right: 1px solid var(--border);
+  background: color-mix(
+    in srgb,
+    color-mix(in srgb, var(--muted) 38%, var(--background))
+      calc(var(--detail-panel-opacity, 1) * 100%),
+    transparent
+  );
+}
+
+.workspace-brand,
+.sidebar-bottom {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+}
+
+.workspace-brand { gap: 9px; padding: 0 5px 8px; }
+.sidebar-collapse {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.sidebar-collapse:hover { border-color: var(--border); background: color-mix(in srgb, var(--muted) calc(var(--component-opacity, 1) * 100%), transparent); color: var(--foreground); }
+.sidebar-collapse:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.sidebar-collapse svg { transition: transform .18s ease; }
+.sidebar-collapse svg.flipped { transform: rotate(180deg); }
+.workspace-brand .brand-mark {
+  width: 30px;
+  height: 30px;
+  border: 1px solid color-mix(in srgb, var(--primary) 30%, transparent);
+  border-radius: 8px;
+  background: var(--primary);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 12%);
+}
+.brand-copy,
+.sidebar-account { display: flex; flex: 1; min-width: 0; flex-direction: column; line-height: 1.25; }
+.brand-copy strong,
+.sidebar-account strong { overflow: hidden; font-size: 12px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.brand-copy small,
+.sidebar-account small { margin-top: 2px; color: var(--muted-foreground); font-size: 10px; }
+.brand-version { color: var(--muted-foreground); font-size: 10px; font-variant-numeric: tabular-nums; }
+
+.sidebar-section-label { padding: 2px 8px 0; color: var(--muted-foreground); font-size: 10px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; }
+.control-nav { display: flex; flex-direction: column; gap: 3px; }
+.nav-item {
+  min-height: 34px;
+  gap: 9px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  transition: background-color .15s, border-color .15s, color .15s;
+}
+.nav-item > svg { flex: none; }
+.nav-item span:nth-child(2) { flex: 1; }
+.nav-item:hover { background: color-mix(in srgb, var(--muted) calc(var(--component-opacity, 1) * 70%), transparent); color: var(--foreground); }
+.nav-item.active {
+  border-color: var(--border);
+  background: color-mix(in srgb, var(--background) calc(var(--component-opacity, 1) * 100%), transparent);
+  color: var(--foreground);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 5%);
+}
+.nav-item.active svg { color: var(--primary); }
+.nav-count { display: inline-flex; min-width: 20px; height: 18px; align-items: center; justify-content: center; border-radius: 4px; background: color-mix(in srgb, var(--muted) calc(var(--component-opacity, 1) * 100%), transparent); color: var(--muted-foreground); font-size: 10px; font-variant-numeric: tabular-nums; }
+.sidebar-bottom { gap: 9px; margin-top: auto; padding: 10px 6px 2px; border-top: 1px solid var(--border); }
+.control-layout.sidebar-compact .control-sidebar { flex-basis: 72px; padding-inline: 8px; }
+.control-layout.sidebar-compact .workspace-brand { justify-content: center; gap: 4px; padding-inline: 0; }
+.control-layout.sidebar-compact .workspace-brand .brand-mark { width: 28px; height: 28px; flex: none; }
+.control-layout.sidebar-compact .sidebar-collapse { width: 22px; height: 22px; }
+.control-layout.sidebar-compact .brand-copy,
+.control-layout.sidebar-compact .brand-version,
+.control-layout.sidebar-compact .sidebar-section-label,
+.control-layout.sidebar-compact .nav-item > span,
+.control-layout.sidebar-compact .sidebar-account { display: none; }
+.control-layout.sidebar-compact .control-nav { align-items: center; }
+.control-layout.sidebar-compact .nav-item { width: 100%; justify-content: center; gap: 0; padding-inline: 0; }
+.control-layout.sidebar-compact .sidebar-bottom { flex-direction: column; gap: 8px; padding-inline: 0; }
+.control-layout.sidebar-narrow-expanded .control-sidebar { flex-basis: 190px; padding-inline: 8px; }
+.control-layout.sidebar-narrow-expanded .workspace-brand { gap: 5px; padding-inline: 0; }
+.control-layout.sidebar-narrow-expanded .brand-version { display: none; }
+.sidebar-avatar { display: grid; width: 28px; height: 28px; flex: none; place-items: center; border: 1px solid var(--border); border-radius: 7px; background: color-mix(in srgb, var(--background) calc(var(--component-opacity, 1) * 100%), transparent); font-size: 9px; font-weight: 700; }
+.foot-dot { width: 7px; height: 7px; flex: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 12%, transparent); }
+.foot-dot.dark { background: #fafafa; }
+.foot-dot.light { background: #09090b; }
+
+.workspace-main { display: flex; flex: 1; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; }
+.workspace-bar { display: flex; flex: none; height: 42px; align-items: center; justify-content: space-between; padding: 0 24px; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--background) calc(var(--detail-panel-opacity, 1) * 100%), transparent); }
+.breadcrumbs { display: flex; align-items: center; gap: 8px; color: var(--muted-foreground); font-size: 10px; }
+.breadcrumbs svg { color: color-mix(in srgb, var(--muted-foreground) 65%, transparent); }
+.breadcrumbs strong { color: var(--foreground); font-weight: 500; }
+.workspace-scroll { display: flex; flex: 1; min-height: 0; flex-direction: column; overflow: hidden; overscroll-behavior: contain; }
+.pane { display: block; flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 20px 30px 28px; }
+.pane > section { width: min(100%, 820px); margin: 0 auto; }
+.pane > section.fill { width: 100%; height: 100%; min-height: 0; margin: 0; }
+.pane.pane-fill { display: flex; flex-direction: column; overflow: hidden; }
+.pane.pane-fill > section.fill { display: flex; flex: 1 1 auto; height: auto; min-height: 0; }
+.pane.pane-fill > section.fill > .fill-body { display: flex; flex: 1 1 auto; min-width: 0; min-height: 0; overflow: hidden; }
+.pane.pane-fill .fill-content { display: flex; flex: 1 1 auto; width: 100%; height: auto; min-width: 0; min-height: 0; flex-direction: column; }
+.pane > section > h2 { display: none; }
+.group-label { margin: 23px 0 9px; color: var(--foreground); font-size: 12px; font-weight: 600; letter-spacing: -.01em; }
+.card,
+.stat-card,
+.monitor-chip {
+  border-color: var(--border);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--surface-subtle) calc(var(--component-opacity, 1) * 100%), transparent);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 3%);
+}
+.row-card { min-height: 62px; margin-bottom: 0; padding: 13px 15px; border-bottom: 0; border-radius: 0; box-shadow: none; }
+.row-card:first-of-type { border-radius: 7px 7px 0 0; }
+.row-card:last-of-type { border-bottom: 1px solid var(--border); border-radius: 0 0 7px 7px; }
+.row-card + .row-card { border-top: 1px solid var(--border); }
+.row-title { font-size: 11px; font-weight: 550; }
+.row-desc { margin-top: 3px; color: var(--muted-foreground); font-size: 10px; line-height: 1.45; }
+.stat-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
+.stat-card { min-height: 78px; padding: 12px 13px; text-align: left; }
+.stat-card strong { margin-top: 4px; font-size: 14px; font-weight: 600; }
+.stat-label { color: var(--muted-foreground); font-size: 10px; }
+.stat-sub { color: var(--muted-foreground); font-size: 9px; }
+.app-card { display: flex; align-items: center; gap: 12px; padding: 15px; border: 1px solid var(--border); border-radius: 8px; background: color-mix(in srgb, var(--card) calc(var(--component-opacity, 1) * 100%), transparent); box-shadow: 0 1px 2px rgb(0 0 0 / 3%); }
+.app-meta strong { font-size: 13px; font-weight: 600; }
+.app-meta small { color: var(--muted-foreground); font-size: 10px; }
+.badge { padding: 3px 7px; border: 1px solid var(--border); border-radius: 5px; background: var(--background); color: var(--muted-foreground); font-size: 9px; }
+.badge.accent { border-color: color-mix(in srgb, var(--primary) 25%, var(--border)); background: color-mix(in srgb, var(--primary) 8%, var(--background)); color: var(--primary); }
+.quick-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
+.quick-list .quick-btn { height: auto; min-height: 38px; justify-content: flex-start; border-radius: 6px; font-size: 10px; }
+.quick-list .quick-btn :deep(svg) { width: 14px; height: 14px; }
+.plugin-stat { cursor: pointer; }
+.monitor-empty { border: 1px dashed var(--border); background: transparent; box-shadow: none; }
+.switch { width: 34px; height: 19px; border: 1px solid var(--border); background: var(--input); }
+.switch::after { width: 15px; height: 15px; background: var(--background); box-shadow: 0 1px 2px rgb(0 0 0 / 15%); }
+.switch:checked::after { transform: translateX(15px); }
+.segmented { gap: 2px; padding: 3px; border-radius: 7px; background: var(--muted); }
+.segmented button { min-height: 27px; padding: 5px 9px; border-radius: 5px; font-size: 10px; }
+.segmented button.on { background: var(--background); box-shadow: 0 1px 2px rgb(0 0 0 / 8%); }
+.btn,
+.mirror-select,
+.opacity-reset-button { border-radius: 6px; font-size: 10px; }
+
+@media (max-width: 720px) {
+  .workspace-bar { padding-inline: 16px; }
+  .pane { padding: 16px 18px 22px; }
+  .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .quick-list { grid-template-columns: 1fr; }
+  .background-image-controls { grid-template-columns: 1fr; gap: 13px; }
+}
+
+/* 设置页和控制中心操作控件共用组件底色不透明度。 */
+.control-layout .btn,
+.control-layout .mirror-select,
+.control-layout .mirror-input,
+.control-layout .opacity-reset-button,
+.control-layout .quick-btn,
+.control-layout .plugin-permission-button,
+.control-layout kbd {
+  background: color-mix(in srgb, var(--surface) calc(var(--component-opacity, 1) * 100%), transparent);
+}
+.control-layout .btn.accent {
+  background: color-mix(in srgb, var(--primary) calc(var(--component-opacity, 1) * 100%), transparent);
+}
+.control-layout .btn.update {
+  background: color-mix(
+    in srgb,
+    color-mix(in srgb, var(--warning) 12%, var(--surface))
+      calc(var(--component-opacity, 1) * 100%),
+    transparent
+  );
+}
+.control-layout .btn.danger.confirming {
+  background: color-mix(in srgb, var(--destructive) calc(var(--component-opacity, 1) * 100%), transparent);
+}
+.control-layout .btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) calc(var(--component-opacity, 1) * 8%), transparent);
+}
+.control-layout .btn.accent:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--primary) calc(var(--component-opacity, 1) * 92%), transparent);
+}
+.control-layout .mirror-select,
+.control-layout .mirror-input {
+  background: color-mix(in srgb, var(--background) calc(var(--component-opacity, 1) * 100%), transparent);
+}
+.control-layout .opacity-reset-button,
+.control-layout .quick-btn,
+.control-layout .plugin-permission-button {
+  background: color-mix(in srgb, var(--surface-subtle) calc(var(--component-opacity, 1) * 100%), transparent);
+}
+.control-layout .segmented {
+  background: color-mix(in srgb, var(--surface) calc(var(--component-opacity, 1) * 100%), transparent);
+}
+.control-layout .segmented button.on {
+  background: color-mix(in srgb, var(--surface-subtle) calc(var(--component-opacity, 1) * 100%), transparent);
+}
+.control-layout .switch {
+  background: color-mix(in srgb, var(--input) calc(var(--component-opacity, 1) * 100%), transparent);
+}
+.control-layout .switch:checked {
+  background: color-mix(in srgb, var(--accent) calc(var(--component-opacity, 1) * 100%), transparent);
+}
+.control-layout :deep(button[role='switch']) {
+  background-color: color-mix(in srgb, var(--input) calc(var(--component-opacity, 1) * 100%), transparent);
+}
+.control-layout :deep(button[role='switch'][data-state='checked']) {
+  background-color: color-mix(in srgb, var(--primary) calc(var(--component-opacity, 1) * 100%), transparent);
+}
+.control-layout .icon-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--surface-container) calc(var(--component-opacity, 1) * 100%), transparent);
+}
+.control-layout .badge {
+  background: color-mix(in srgb, var(--background) calc(var(--component-opacity, 1) * 100%), transparent);
+}
+.control-layout .badge.accent {
+  background: color-mix(
+    in srgb,
+    color-mix(in srgb, var(--primary) 8%, var(--background))
+      calc(var(--component-opacity, 1) * 100%),
+    transparent
+  );
 }
 
 </style>

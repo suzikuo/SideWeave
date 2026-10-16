@@ -9,6 +9,8 @@ export const appReady = () => invoke<void>('app_ready')
 /** 修改单个设置项（Rust 侧校验并应用副作用），返回最新 settings */
 export const setSetting = (category: string, key: string, value: unknown) =>
   invoke<Settings>('set_setting', { category, key, value })
+export const chooseBackgroundImage = () => invoke<Settings | null>('choose_background_image')
+export const clearBackgroundImage = () => invoke<Settings>('clear_background_image')
 
 /** Switch skins and apply the skin's recommended opacity values in one settings update. */
 export const setSkinAppearance = (skinId: string, opacityDefaults: SkinAppearanceDefaults) =>

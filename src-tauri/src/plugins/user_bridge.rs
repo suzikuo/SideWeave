@@ -58,10 +58,19 @@ pub const BRIDGE_JS: &str = r#"(function () {
     var root = document.documentElement;
     if (!root) return;
     var variables = theme && theme.variables || {};
-    var panelOpacity = clampOpacity(variables['--detail-panel-opacity']);
+    var panelOpacity = clampOpacity(
+      variables['--preview-panel-opacity'] !== undefined
+        ? variables['--preview-panel-opacity']
+        : variables['--detail-panel-opacity']
+    );
+    var hasPreviewPanelOpacity = variables['--preview-panel-opacity'] !== undefined;
     var componentOpacity = clampOpacity(variables['--component-opacity']);
     var imageOpacity = clampOpacity(variables['--detail-image-opacity']);
     root.style.setProperty('--detail-panel-opacity', String(panelOpacity));
+    if (hasPreviewPanelOpacity) {
+      root.style.setProperty('--preview-panel-opacity', String(panelOpacity));
+      root.style.setProperty('--preview-panel-opacity-percent', String(Math.round(panelOpacity * 100)) + '%');
+    }
     root.style.setProperty('--component-opacity', String(componentOpacity));
     root.style.setProperty('--detail-image-opacity', String(imageOpacity));
 

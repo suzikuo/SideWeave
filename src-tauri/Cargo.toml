@@ -21,7 +21,7 @@ sideweave-plugin-api = { package = "sideweave-plugin-api", path = "../crates/plu
 sideweave-plugin-sdk = { package = "sideweave-plugin-sdk", path = "../crates/plugin-sdk" }
 sideweave-plugin-runtime = { package = "sideweave-plugin-runtime", path = "../crates/plugin-runtime" }
 sideweave-plugin-ipc = { package = "sideweave-plugin-ipc", path = "../crates/plugin-ipc" }
-tauri = { version = "2", features = ["tray-icon", "image-ico", "unstable"] }
+tauri = { version = "2", features = ["protocol-asset", "tray-icon", "image-ico", "unstable"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-autostart = "2"

@@ -19,7 +19,7 @@ pub(crate) const SIDEBAR_WINDOW_LABEL: &str = "host-sidebar-notifications";
 const CHANGE_EVENT: &str = "host-notification://changed";
 const DESKTOP_WIDTH: f64 = 420.0;
 const DESKTOP_MAX_HEIGHT: f64 = 640.0;
-const SIDEBAR_WIDTH: f64 = 400.0;
+const SIDEBAR_WIDTH: f64 = 340.0;
 const SIDEBAR_MAX_HEIGHT: f64 = 420.0;
 const MAX_ACTIVE_NOTIFICATIONS: usize = 20;
 
@@ -404,6 +404,7 @@ fn update_window(app: &AppHandle, surface: Surface) {
         .minimizable(false)
         .maximizable(false)
         .closable(false)
+        .focusable(false)
         .focused(false)
         .visible(false)
         .build()
@@ -415,6 +416,14 @@ fn update_window(app: &AppHandle, surface: Surface) {
             }
         }
     };
+
+    #[cfg(windows)]
+    {
+        // Keep Tao's internal focus state in sync with the Win32 no-activate
+        // style; otherwise focusing the webview can restore an activatable frame.
+        let _ = window.set_focusable(false);
+        let _ = window.set_decorations(false);
+    }
 
     #[cfg(windows)]
     if let Ok(hwnd) = window.hwnd() {
@@ -463,10 +472,14 @@ pub(super) fn schedule_borderless_show(app: AppHandle, label: &'static str) -> R
         let Some(window) = display_app.get_window(label) else {
             return;
         };
+        let _ = window.set_focusable(false);
+        let _ = window.set_decorations(false);
         let Ok(hwnd) = window.hwnd() else {
             return;
         };
-        unsafe { native::strip_window_chrome(hwnd.0 as _) };
+        if !unsafe { native::enforce_borderless(hwnd.0 as _) } {
+            eprintln!("[sideweave_] failed to restore borderless notification window styles");
+        }
         crate::platform::show_window_no_activate(hwnd.0);
     })
     .map_err(|error| error.to_string())
@@ -525,7 +538,7 @@ fn sidebar_position(
 ) -> (i32, i32) {
     let width_px = (width * scale).round() as i32;
     let height_px = (height * scale).round() as i32;
-    let gap = (12.0 * scale).round() as i32;
+    let gap = (4.0 * scale).round() as i32;
     let settings = crate::host_settings(app);
     let sidebar = app.get_webview_window(crate::SIDEBAR);
 

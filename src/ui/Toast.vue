@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import Icon from './Icon.vue'
 
 const props = defineProps<{
   message: string
@@ -35,7 +36,10 @@ watch(
 
 <template>
   <Transition name="toast">
-    <div v-if="visible" class="toast" :class="kind ?? 'info'">{{ message }}</div>
+    <div v-if="visible" class="toast" :class="kind ?? 'info'" role="status" aria-live="polite">
+      <span class="toast-icon"><Icon :name="kind === 'error' ? 'x' : kind === 'success' ? 'check' : 'info'" :size="14" /></span>
+      <span class="toast-message">{{ message }}</span>
+    </div>
   </Transition>
 </template>
 
@@ -46,25 +50,31 @@ watch(
   bottom: 28px;
   transform: translateX(-50%);
   max-width: 70%;
-  padding: 9px 16px;
-  border-radius: var(--radius, 12px);
-  background: var(--surface-subtle);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  background: var(--popover, var(--surface));
   border: 1px solid var(--border);
   box-shadow: var(--shadow);
-  font-size: 12.5px;
+  font-size: 11px;
   color: var(--text);
-  white-space: pre-wrap;
-  word-break: break-all;
+  white-space: normal;
   z-index: 1000;
 }
+.toast-icon { display: grid; width: 22px; height: 22px; flex: none; place-items: center; border: 1px solid var(--border); border-radius: 6px; color: var(--text-muted); }
+.toast-message { overflow-wrap: anywhere; }
 .toast.error {
-  border-color: var(--danger);
-  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 36%, var(--border));
+  color: var(--text);
 }
+.toast.error .toast-icon { border-color: color-mix(in srgb, var(--danger) 30%, var(--border)); color: var(--danger); }
 .toast.success {
-  border-color: var(--success);
-  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 36%, var(--border));
+  color: var(--text);
 }
+.toast.success .toast-icon { border-color: color-mix(in srgb, var(--success) 30%, var(--border)); color: var(--success); }
 .toast-enter-active,
 .toast-leave-active {
   transition: opacity 0.25s ease, transform 0.25s ease;

@@ -6,36 +6,37 @@
 
 :root {
   --rail-image: none;
-  --font-ui: 'Segoe UI Variable', 'Segoe UI', 'Microsoft YaHei UI', system-ui, sans-serif;
+  --font-ui: Inter, 'Segoe UI Variable', 'Segoe UI', 'Microsoft YaHei UI', system-ui, sans-serif;
   --component-opacity: 1;
 }
 
 /* ---------- 默认（飞书视觉：冷蓝渐变背景） ---------- */
 [data-skin='default'] {
-  --font-ui: 'Segoe UI', 'Microsoft YaHei UI', system-ui, sans-serif;
+  --font-ui: Inter, 'Segoe UI Variable', 'Segoe UI', 'Microsoft YaHei UI', system-ui, sans-serif;
 }
 [data-skin='default'] {
-  --notification-info: #80a7ff;
-  --notification-success: #54d6b3;
-  --notification-warning: #efbd65;
-  --notification-alarm: #ff7d83;
-  --notification-desktop-background: linear-gradient(145deg, rgba(35, 37, 44, .98), rgba(25, 26, 31, .98));
-  --notification-desktop-color: #f3f4f7;
-  --notification-desktop-border-base: #474951;
-  --notification-desktop-shadow: 0 12px 34px rgba(0, 0, 0, .32);
-  --notification-desktop-radius: 13px;
-  --notification-desktop-backdrop-filter: none;
-  --notification-bubble-info: #3c76cb;
-  --notification-bubble-success: #23816a;
-  --notification-bubble-warning: #a96a0d;
-  --notification-bubble-alarm: #c3444b;
-  --notification-bubble-background: #fffdf7;
-  --notification-bubble-color: #242424;
-  --notification-bubble-title: #202020;
-  --notification-bubble-body: #444;
-  --notification-bubble-border: #1c1c1c;
-  --notification-bubble-shadow: 0 5px 14px rgba(0, 0, 0, .2);
-  --notification-bubble-radius: 16px;
+  --notification-info: var(--accent);
+  --notification-success: var(--success);
+  --notification-warning: var(--warning);
+  --notification-alarm: var(--danger);
+  --notification-desktop-background: var(--surface);
+  --notification-desktop-color: var(--text);
+  --notification-desktop-body-color: var(--text-muted);
+  --notification-desktop-border-base: var(--border);
+  --notification-desktop-shadow: 0 1px 2px rgb(0 0 0 / 22%), 0 8px 24px rgb(0 0 0 / 18%);
+  --notification-desktop-radius: 10px;
+  --notification-desktop-backdrop-filter: blur(16px) saturate(135%);
+  --notification-bubble-info: var(--accent);
+  --notification-bubble-success: var(--success);
+  --notification-bubble-warning: var(--warning);
+  --notification-bubble-alarm: var(--danger);
+  --notification-bubble-background: #ffffff;
+  --notification-bubble-color: #18181b;
+  --notification-bubble-title: #18181b;
+  --notification-bubble-body: #52525b;
+  --notification-bubble-border: #d4d4d8;
+  --notification-bubble-shadow: 0 8px 22px rgb(0 0 0 / 16%);
+  --notification-bubble-radius: 14px;
 }
 :root[data-skin^='user-'] {
   --notification-info: var(--accent);
@@ -44,6 +45,7 @@
   --notification-alarm: var(--danger);
   --notification-desktop-background: color-mix(in srgb, var(--surface) 94%, transparent);
   --notification-desktop-color: var(--text);
+  --notification-desktop-body-color: var(--text-muted);
   --notification-desktop-border-base: var(--border);
   --notification-desktop-shadow: var(--shadow);
   --notification-desktop-radius: var(--radius-lg);
@@ -74,20 +76,24 @@
   --rail-image: url('../assets/skins/feishu_bg.jpg');
 }
 
-/* 有背景图的皮肤：详情卡轻微透明 + 毛玻璃，让皮肤背景透出来 */
+/* 卡片透明度由组件不透明度控制，和详情页/控制中心底板独立。 */
 [data-skin='default'] .detail-shell .card {
   background: color-mix(in srgb, color-mix(in srgb, var(--surface) 84%, transparent) calc(var(--component-opacity, 1) * 100%), transparent);
-  backdrop-filter: blur(8px);
+  backdrop-filter: var(--component-glass-filter, none);
+  -webkit-backdrop-filter: var(--component-glass-filter, none);
 }
 [data-skin='default'] .control-surface .card {
   background: color-mix(in srgb, color-mix(in srgb, var(--surface) 84%, transparent) calc(var(--component-opacity, 1) * 100%), transparent);
-  backdrop-filter: blur(8px);
+  backdrop-filter: var(--component-glass-filter, none);
+  -webkit-backdrop-filter: var(--component-glass-filter, none);
 }
 :where([data-skin^='user-']) :where(.detail-shell) :where(.card) {
   background: color-mix(in srgb, color-mix(in srgb, var(--surface) 84%, transparent) calc(var(--component-opacity, 1) * 100%), transparent);
-  backdrop-filter: blur(8px);
+  backdrop-filter: var(--component-glass-filter, none);
+  -webkit-backdrop-filter: var(--component-glass-filter, none);
 }
 :where([data-skin^='user-']) :where(.control-surface) :where(.card) {
   background: color-mix(in srgb, color-mix(in srgb, var(--surface) 84%, transparent) calc(var(--component-opacity, 1) * 100%), transparent);
-  backdrop-filter: blur(8px);
+  backdrop-filter: var(--component-glass-filter, none);
+  -webkit-backdrop-filter: var(--component-glass-filter, none);
 }

@@ -80,6 +80,8 @@ export interface SkinAppearanceDefaults {
   sidebarPanelOpacity?: number
   detailPanelOpacity?: number
   controlPanelOpacity?: number
+  previewPanelOpacity?: number
+  previewImageOpacity?: number
   sidebarImageOpacity?: number
   detailImageOpacity?: number
   componentOpacity?: number

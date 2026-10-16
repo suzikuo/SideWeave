@@ -84,6 +84,12 @@ const pluginImageStyle = computed(() => ({
     <template v-else-if="name === 'chevron-left'">
       <path d="m15 18-6-6 6-6" />
     </template>
+    <template v-else-if="name === 'chevron-right'">
+      <path d="m9 18 6-6-6-6" />
+    </template>
+    <template v-else-if="name === 'command'">
+      <path d="M9 6v12a3 3 0 1 1-3-3h12a3 3 0 1 1-3 3V6a3 3 0 1 1 3 3H6a3 3 0 1 1 3-3" />
+    </template>
     <template v-else-if="name === 'folder'">
       <path
         d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
@@ -100,6 +106,11 @@ const pluginImageStyle = computed(() => ({
       <circle cx="12" cy="12" r="10" />
       <path d="M12 16v-4" />
       <path d="M12 8h.01" />
+    </template>
+    <template v-else-if="name === 'triangle-alert'">
+      <path d="m10.3 3.9-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3.1l-8-14a2 2 0 0 0-3.4 0Z" />
+      <path d="M12 9v4" />
+      <path d="M12 17h.01" />
     </template>
     <template v-else-if="name === 'bell'">
       <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" />

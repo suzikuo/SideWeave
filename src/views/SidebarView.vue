@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import Button from '@/components/ui/button/Button.vue'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import Icon from '../ui/Icon.vue'
@@ -201,12 +202,14 @@ const railStyle = computed(() => {
     '--rail-color': hexToRgba(surfaceColor.value, panelOpacity),
     '--rail-img-opacity': String(props.appearance.sidebar_image_opacity),
     '--component-opacity': String(props.appearance.component_opacity),
-    borderRadius: `var(--rail-radius, ${Math.round(props.appearance.collapsed_width / 2) - 2}px)`
+    borderRadius: props.appearance.sidebar_position === 'top'
+      ? `${Math.round(props.appearance.collapsed_width / 2) - 2}px`
+      : '16px'
   }
 })
 
-const ringSize = computed(() => Math.round(props.appearance.collapsed_width * 0.56))
-const iconSize = computed(() => Math.round(ringSize.value * 0.5))
+const ringSize = computed(() => Math.min(32, Math.max(30, props.appearance.collapsed_width - 18)))
+const iconSize = computed(() => 14)
 const openError = ref('')
 
 function onPluginMouseEnter(e: MouseEvent, plugin: PluginMeta) {
@@ -264,7 +267,9 @@ onUnmounted(() => {
   <!-- Pulse 风格圆环轨道：贴边胶囊面板 + 圆环入口，收起时仅露屏幕边缘细缝 -->
   <div class="rail-wrap" @contextmenu.prevent :class="[`pos-${appearance.sidebar_position}`, { collapsed: !expanded }]">
     <div class="rail" :style="railStyle">
-      <button
+      <Button
+        variant="ghost"
+        size="icon-sm"
         v-for="p in orderedPlugins"
         :key="p.id"
         class="ring"
@@ -275,11 +280,13 @@ onUnmounted(() => {
         @mouseleave="onPluginMouseLeave(p.id)"
       >
         <Icon :name="p.icon || 'puzzle'" :size="iconSize" :stroke-width="1.8" />
-      </button>
+      </Button>
 
       <div class="spacer" />
 
-      <button
+      <Button
+        variant="ghost"
+        size="icon-sm"
         class="ring"
         :style="{ width: ringSize + 'px', height: ringSize + 'px' }"
         aria-label="设置"
@@ -288,7 +295,7 @@ onUnmounted(() => {
         @mouseleave="hideTip"
       >
         <Icon name="settings" :size="iconSize" :stroke-width="1.8" />
-      </button>
+      </Button>
     </div>
     <div class="peek" :style="{ background: appearance.sidebar_border_color }" />
 
@@ -457,12 +464,14 @@ onUnmounted(() => {
 
 /* 收起时由宿主移动原生窗口；这里仅淡化轨道，避免内容与窗口重复位移。 */
 .collapsed .rail {
-  opacity: 0.55;
-}
-.collapsed .ring,
-.collapsed .ring:hover {
-  transform: scale(0.82);
   opacity: 0.9;
+}
+.collapsed .ring {
+  transform: scale(0.82);
+  opacity: 1;
+}
+.collapsed .ring:hover {
+  transform: scale(0.9);
 }
 
 /* 细缝：收起时从边缘渐显并弹性生长 */
@@ -516,12 +525,12 @@ onUnmounted(() => {
   max-width: 180px;
   padding: 5px 10px;
   border-radius: 8px;
-  background: #101013;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: #f0f1f3;
+  background: var(--popover, var(--surface));
+  border: 1px solid var(--border);
+  color: var(--popover-foreground, var(--text));
   font-size: 11.5px;
   white-space: nowrap;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow);
   pointer-events: none;
   animation: tip-in 0.16s ease both;
 }
@@ -533,4 +542,32 @@ onUnmounted(() => {
     opacity: 1;
   }
 }
+
+.rail {
+  gap: 12px;
+  padding: 8px 0;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: transparent;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 14%);
+  backdrop-filter: blur(18px) saturate(140%);
+}
+.pos-top .rail { gap: 6px; padding: 0 8px; }
+.ring {
+  border: 2px solid var(--border-strong);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--surface) calc(var(--component-opacity, 1) * 100%), transparent);
+  color: var(--foreground);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 4%);
+  transition: color .15s, border-color .15s, background-color .15s, box-shadow .15s, transform .12s;
+}
+.ring:hover {
+  transform: none;
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, var(--surface));
+  color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 14%, transparent);
+}
+.ring:active { transform: scale(.96); }
+.tip { padding: 5px 8px; border-radius: 6px; background: var(--popover); color: var(--popover-foreground); font-size: 10px; box-shadow: 0 4px 12px rgb(0 0 0 / 12%); }
 </style>

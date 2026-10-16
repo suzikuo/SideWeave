@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import Button from '@/components/ui/button/Button.vue'
 import { computed, ref, watch } from 'vue'
 import { resetPluginSettings, setPluginSettings } from '../lib/api'
 import { settingsRef } from '../lib/store'
@@ -185,12 +186,12 @@ async function restoreDefaults() {
       </div>
 
       <div class="settings-actions">
-        <button class="btn" :disabled="busy || !configured" @click="restoreDefaults">
+        <Button variant="outline" size="sm" class="btn" :disabled="busy || !configured" @click="restoreDefaults">
           <Icon name="refresh" :size="14" /> 恢复插件默认值
-        </button>
-        <button class="btn accent" :disabled="busy" @click="save">
+        </Button>
+        <Button variant="default" size="sm" class="btn accent" :disabled="busy" @click="save">
           <Icon name="check" :size="14" /> {{ busy ? '保存中…' : '保存参数' }}
-        </button>
+        </Button>
       </div>
     </template>
 

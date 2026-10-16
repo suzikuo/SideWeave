@@ -37,6 +37,12 @@ export interface AppearanceSettings {
   theme_mode: 'light' | 'dark' | 'system'
   skin: SkinId
   accent_color: string
+  background_image_path: string
+  background_image_name: string
+  background_image_apply_to_sidebar: boolean
+  background_image_fit: 'cover' | 'fill' | 'contain'
+  background_image_opacity: number
+  background_image_blur: number
   interface_scale: number
   sidebar_position: 'left' | 'right' | 'top'
   collapsed_width: number
@@ -45,9 +51,12 @@ export interface AppearanceSettings {
   sidebar_panel_opacity: number
   detail_panel_opacity: number
   control_panel_opacity: number
+  preview_panel_opacity: number
+  preview_image_opacity: number
   sidebar_image_opacity: number
   detail_image_opacity: number
   component_opacity: number
+  glass_effect_enabled: boolean
   sidebar_height_percent: number
   sidebar_y_offset: number
   sidebar_x_offset: number

@@ -16,18 +16,17 @@ use windows_sys::Win32::UI::Shell::{
     DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass, SUBCLASSPROC,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GetClientRect, GetWindowLongPtrW, KillTimer, SetLayeredWindowAttributes, SetTimer,
-    SetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE, GWL_STYLE, LWA_ALPHA, MA_NOACTIVATE,
-    SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, WM_ERASEBKGND,
-    WM_MOUSEACTIVATE, WM_NCDESTROY, WM_PAINT, WM_RBUTTONUP, WM_SHOWWINDOW, WM_STYLECHANGED,
-    WM_STYLECHANGING, WM_TIMER, WS_CAPTION, WS_EX_CLIENTEDGE, WS_EX_LAYERED, WS_EX_NOACTIVATE,
+    GetClientRect, GetWindowLongPtrW, SetLayeredWindowAttributes, SetWindowLongPtrW,
+    SetWindowPos, GWL_EXSTYLE, GWL_STYLE, LWA_ALPHA, MA_NOACTIVATE, SWP_FRAMECHANGED,
+    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, WM_ERASEBKGND, WM_ACTIVATE,
+    WM_MOUSEACTIVATE, WM_NCACTIVATE, WM_NCDESTROY, WM_PAINT, WM_RBUTTONUP, WM_NCPAINT,
+    WM_SETFOCUS, WM_SHOWWINDOW, WM_STYLECHANGED, WM_STYLECHANGING, WS_CAPTION,
+    WS_EX_CLIENTEDGE, WS_EX_LAYERED, WS_EX_NOACTIVATE,
     WS_EX_STATICEDGE, WS_EX_WINDOWEDGE, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_SYSMENU, WS_THICKFRAME,
 };
 
 const SUBCLASS_ID: usize = 0xA61C_0012;
 const BORDERLESS_SUBCLASS_ID: usize = 0xA61C_0014;
-const PROGRESS_TIMER_ID: usize = 0xA61C_0013;
-const TIMER_INTERVAL_MS: u32 = 33;
 const CARD_GAP: i32 = 9;
 const EDGE_PADDING: i32 = 10;
 
@@ -52,7 +51,6 @@ struct NativeSurfaceState {
     bubble_background: u32,
     desktop_custom_background: bool,
     bubble_custom_background: bool,
-    last_progress_widths: Vec<i32>,
 }
 
 #[derive(Clone, Copy)]
@@ -89,25 +87,32 @@ fn card_layouts(
 ) -> Vec<CardLayout> {
     let margin = (EDGE_PADDING as f64 * scale).round() as i32;
     let gap = (CARD_GAP as f64 * scale).round() as i32;
-    let tail = (12.0 * scale).round() as i32;
+    let tail = if surface == Surface::Sidebar {
+        (7.0 * scale).round() as i32
+    } else {
+        0
+    };
     let mut top = margin;
     card_heights
         .iter()
         .map(|card_height| {
             let bottom = (top + *card_height).min(height - margin);
-            let (body_top, body_bottom, body_left, body_right) = match surface {
-                Surface::Desktop => (top, bottom, margin, width - margin),
-                Surface::Sidebar => match tail_side {
-                    "left" => (top, bottom, margin + tail, width - margin),
-                    "right" => (top, bottom, margin, width - margin - tail),
-                    _ => (top + tail, bottom, margin, width - margin),
-                },
-            };
+            let (body_top, body_bottom, body_left, body_right, left, right) =
+                if surface == Surface::Sidebar {
+                    match tail_side {
+                        "left" => (top, bottom, margin + tail, width - margin, margin, width - margin),
+                        "right" => (top, bottom, margin, width - margin - tail, margin, width - margin),
+                        "top" => (top + tail, bottom, margin, width - margin, margin, width - margin),
+                        _ => (top, bottom, margin, width - margin, margin, width - margin),
+                    }
+                } else {
+                    (top, bottom, margin, width - margin, margin, width - margin)
+                };
             let layout = CardLayout {
                 top,
                 bottom,
-                left: body_left.min(margin),
-                right: body_right.max(width - margin),
+                left,
+                right,
                 body_top,
                 body_bottom,
                 body_left,
@@ -180,16 +185,21 @@ fn measured_card_height(
     card_limit: i32,
 ) -> i32 {
     let margin = (EDGE_PADDING as f64 * scale).round() as i32;
-    let tail = if surface == Surface::Sidebar && matches!(tail_side, "left" | "right") {
-        (12.0 * scale).round() as i32
-    } else {
-        0
-    };
     let horizontal_inset = match surface {
         Surface::Desktop => (16.0 * scale).round() as i32,
         Surface::Sidebar => (12.0 * scale).round() as i32,
     };
-    let text_width = (outer_width - margin * 2 - tail - horizontal_inset * 2).max(1);
+    let tail = if surface == Surface::Sidebar {
+        (7.0 * scale).round() as i32
+    } else {
+        0
+    };
+    let horizontal_tail = if matches!(tail_side, "left" | "right") {
+        tail
+    } else {
+        0
+    };
+    let text_width = (outer_width - margin * 2 - horizontal_tail - horizontal_inset * 2).max(1);
     let height = match surface {
         Surface::Sidebar => {
             let body = if notification.body.trim().is_empty() {
@@ -200,12 +210,7 @@ fn measured_card_height(
             let text_height = measure_text_height(body, text_width, 12.0, false, scale);
             let min_body_height = (40.0 * scale).round() as i32;
             let body_height = (text_height + (15.0 * scale).round() as i32).max(min_body_height);
-            body_height
-                + if tail_side == "top" {
-                    (12.0 * scale).round() as i32
-                } else {
-                    0
-                }
+            body_height + if tail_side == "top" { tail } else { 0 }
         }
         Surface::Desktop => {
             let has_title = !notification.title.trim().is_empty();
@@ -313,9 +318,9 @@ pub(super) fn update(
     }
     .clamp(0.0, 1.0);
     let desktop_background = parse_hex_color(&notification_settings.desktop_background_color)
-        .unwrap_or_else(|| rgb(35, 37, 44));
+        .unwrap_or_else(|| rgb(24, 24, 27));
     let bubble_background = parse_hex_color(&notification_settings.bubble_background_color)
-        .unwrap_or_else(|| rgb(255, 253, 247));
+        .unwrap_or_else(|| rgb(255, 255, 255));
     let desktop_custom_background = !notification_settings
         .desktop_background_color
         .trim()
@@ -343,6 +348,7 @@ pub(super) fn update(
             .minimizable(false)
             .maximizable(false)
             .closable(false)
+            .focusable(false)
             .focused(false)
             .visible(false)
             .inner_size(width, initial_height)
@@ -353,6 +359,7 @@ pub(super) fn update(
         .hwnd()
         .map_err(|error| format!("failed to access native notification window: {error}"))?
         .0 as HWND;
+    let _ = window.set_focusable(false);
     if !unsafe { enforce_borderless(hwnd) } {
         return Err("failed to enforce borderless notification window styles".into());
     }
@@ -382,7 +389,6 @@ pub(super) fn update(
     }
 
     let key = hwnd as isize;
-    let visible_count = visible.len();
     states()
         .lock()
         .map_err(|_| "native notification registry is poisoned".to_string())?
@@ -399,7 +405,6 @@ pub(super) fn update(
                 bubble_background,
                 desktop_custom_background,
                 bubble_custom_background,
-                last_progress_widths: vec![-1; visible_count],
             },
         );
 
@@ -410,7 +415,6 @@ pub(super) fn update(
         return Err("failed to attach native notification drawing handler".into());
     }
     unsafe {
-        let _ = SetTimer(hwnd, PROGRESS_TIMER_ID, TIMER_INTERVAL_MS, None);
         apply_window_region(hwnd, surface, actual_scale, tail_side);
         let _ = InvalidateRect(hwnd, std::ptr::null(), 1);
     }
@@ -496,15 +500,39 @@ unsafe extern "system" fn borderless_subclass_proc(
                 }
             }
         }
-        WM_MOUSEACTIVATE => return MA_NOACTIVATE as LRESULT,
-        WM_STYLECHANGED | WM_SHOWWINDOW => strip_window_chrome(hwnd),
+        WM_MOUSEACTIVATE => {
+            strip_window_chrome(hwnd);
+            return MA_NOACTIVATE as LRESULT;
+        }
+        WM_NCACTIVATE => {
+            // These surfaces must never show the system's blue active caption.
+            strip_window_chrome(hwnd);
+            return 0;
+        }
+        WM_NCPAINT => {
+            strip_window_chrome(hwnd);
+            return 0;
+        }
         WM_NCDESTROY => {
             let callback: SUBCLASSPROC = Some(borderless_subclass_proc);
             let _ = RemoveWindowSubclass(hwnd, callback, BORDERLESS_SUBCLASS_ID);
+            return DefSubclassProc(hwnd, message, wparam, lparam);
         }
         _ => {}
     }
-    DefSubclassProc(hwnd, message, wparam, lparam)
+    if matches!(message, WM_STYLECHANGED | WM_SHOWWINDOW | WM_ACTIVATE | WM_SETFOCUS) {
+        strip_window_chrome(hwnd);
+    }
+    let result = DefSubclassProc(hwnd, message, wparam, lparam);
+    if matches!(
+        message,
+        WM_STYLECHANGED | WM_SHOWWINDOW | WM_NCACTIVATE | WM_ACTIVATE | WM_SETFOCUS
+    ) {
+        // WebView2 can update the host window styles while processing focus/show
+        // messages. Reapply the borderless, no-activate styles after that work.
+        strip_window_chrome(hwnd);
+    }
+    result
 }
 
 pub(super) fn destroy(app: &AppHandle, surface: Surface) {
@@ -529,23 +557,12 @@ unsafe extern "system" fn subclass_proc(
                 .ok()
                 .and_then(|items| items.get(&(hwnd as isize)).cloned())
             {
-                let drawn_progress = paint(hwnd, &state);
-                if let Ok(mut items) = states().lock() {
-                    if let Some(current) = items.get_mut(&(hwnd as isize)) {
-                        if current.notifications.len() == drawn_progress.len() {
-                            current.last_progress_widths = drawn_progress;
-                        }
-                    }
-                }
+                paint(hwnd, &state);
             } else {
                 let mut paint = std::mem::zeroed();
                 let _ = BeginPaint(hwnd, &mut paint);
                 let _ = EndPaint(hwnd, &paint);
             }
-            return 0;
-        }
-        WM_TIMER if wparam == PROGRESS_TIMER_ID => {
-            update_progress(hwnd);
             return 0;
         }
         WM_SHOWWINDOW => {
@@ -605,7 +622,6 @@ unsafe extern "system" fn subclass_proc(
             return 0;
         }
         WM_NCDESTROY => {
-            let _ = KillTimer(hwnd, PROGRESS_TIMER_ID);
             if let Ok(mut items) = states().lock() {
                 items.remove(&(hwnd as isize));
             }
@@ -617,7 +633,7 @@ unsafe extern "system" fn subclass_proc(
     DefSubclassProc(hwnd, message, wparam, lparam)
 }
 
-unsafe fn apply_window_region(hwnd: HWND, surface: Surface, scale: f64, tail_side: &str) {
+unsafe fn apply_window_region(hwnd: HWND, surface: Surface, scale: f64, _tail_side: &str) {
     let mut client = empty_rect();
     if GetClientRect(hwnd, &mut client) == 0 {
         return;
@@ -633,26 +649,31 @@ unsafe fn apply_window_region(hwnd: HWND, surface: Surface, scale: f64, tail_sid
                 .map(|state| state.card_heights.clone())
         })
         .unwrap_or_default();
-    let layouts = card_layouts(surface, width, height, &card_heights, scale, tail_side);
+    let layouts = card_layouts(surface, width, height, &card_heights, scale, _tail_side);
     let combined = CreateRectRgn(0, 0, 0, 0);
     if combined.is_null() {
         return;
     }
     for layout in layouts {
+        let corner = if surface == Surface::Sidebar {
+            28.0 * scale
+        } else {
+            24.0 * scale
+        };
         let card_region = CreateRoundRectRgn(
             layout.body_left,
             layout.body_top,
             layout.body_right,
             layout.body_bottom,
-            (18.0 * scale).round() as i32,
-            (18.0 * scale).round() as i32,
+            corner.round() as i32,
+            corner.round() as i32,
         );
         if !card_region.is_null() {
             let _ = CombineRgn(combined, combined, card_region, RGN_OR);
             let _ = DeleteObject(card_region as _);
         }
         if surface == Surface::Sidebar {
-            let points = tail_points(layout, tail_side, scale);
+            let points = tail_points(layout, _tail_side, scale);
             if points.len() == 3 {
                 let tail_region = CreatePolygonRgn(points.as_ptr(), points.len() as i32, WINDING);
                 if !tail_region.is_null() {
@@ -668,7 +689,7 @@ unsafe fn apply_window_region(hwnd: HWND, surface: Surface, scale: f64, tail_sid
 }
 
 fn tail_points(layout: CardLayout, tail_side: &str, scale: f64) -> Vec<POINT> {
-    let tail = (12.0 * scale).round() as i32;
+    let tail = (7.0 * scale).round() as i32;
     let middle_y = (layout.body_top + layout.body_bottom) / 2;
     let middle_x = (layout.body_left + layout.body_right) / 2;
     match tail_side {
@@ -718,97 +739,11 @@ fn tail_points(layout: CardLayout, tail_side: &str, scale: f64) -> Vec<POINT> {
     }
 }
 
-fn progress_rect(layout: CardLayout, surface: Surface, scale: f64) -> RECT {
-    let horizontal_inset = match surface {
-        Surface::Desktop => 14.0,
-        Surface::Sidebar => 12.0,
-    };
-    let height = (2.0 * scale).round().max(1.0) as i32;
-    let inset = (horizontal_inset * scale).round() as i32;
-    let bottom_gap = (5.0 * scale).round() as i32;
-    let top = layout.body_bottom - bottom_gap - height;
-    RECT {
-        left: layout.body_left + inset,
-        top,
-        right: layout.body_right - inset,
-        bottom: top + height,
-    }
-}
-
-fn progress_width(notification: &DesktopNotification, rect: RECT) -> i32 {
-    let duration = notification
-        .expires_at_ms
-        .saturating_sub(notification.created_at_ms)
-        .max(1) as f64;
-    let remaining = notification.expires_at_ms.saturating_sub(now_ms()) as f64;
-    (((rect.right - rect.left) as f64) * (remaining / duration).clamp(0.0, 1.0)).round() as i32
-}
-
-fn progress_track_color(surface: Surface) -> u32 {
-    match surface {
-        Surface::Desktop => rgb(72, 75, 85),
-        Surface::Sidebar => rgb(224, 224, 218),
-    }
-}
-
-unsafe fn update_progress(hwnd: HWND) {
-    let hdc = GetDC(hwnd);
-    if hdc.is_null() {
-        return;
-    }
-    let mut client = empty_rect();
-    let _ = GetClientRect(hwnd, &mut client);
-    let mut needs_full_paint = false;
-    if let Ok(mut items) = states().lock() {
-        if let Some(state) = items.get_mut(&(hwnd as isize)) {
-            let layouts = card_layouts(
-                state.surface,
-                client.right - client.left,
-                client.bottom - client.top,
-                &state.card_heights,
-                state.scale,
-                &state.tail_side,
-            );
-            for (index, (notification, layout)) in
-                state.notifications.iter().zip(layouts.iter()).enumerate()
-            {
-                let area = progress_rect(*layout, state.surface, state.scale);
-                let next = progress_width(notification, area);
-                let previous = state.last_progress_widths.get(index).copied().unwrap_or(-1);
-                if previous < 0 || next > previous {
-                    needs_full_paint = true;
-                    continue;
-                }
-                if next < previous {
-                    let changed = RECT {
-                        left: area.left + next,
-                        top: area.top,
-                        right: area.left + previous.min(area.right - area.left),
-                        bottom: area.bottom,
-                    };
-                    let track = CreateSolidBrush(progress_track_color(state.surface));
-                    if !track.is_null() {
-                        let _ = FillRect(hdc, &changed, track);
-                        let _ = DeleteObject(track as _);
-                    }
-                    if let Some(last) = state.last_progress_widths.get_mut(index) {
-                        *last = next;
-                    }
-                }
-            }
-        }
-    }
-    let _ = ReleaseDC(hwnd, hdc);
-    if needs_full_paint {
-        let _ = InvalidateRect(hwnd, std::ptr::null(), 0);
-    }
-}
-
-unsafe fn paint(hwnd: HWND, state: &NativeSurfaceState) -> Vec<i32> {
+unsafe fn paint(hwnd: HWND, state: &NativeSurfaceState) {
     let mut paint = std::mem::zeroed();
     let hdc = BeginPaint(hwnd, &mut paint);
     if hdc.is_null() {
-        return Vec::new();
+        return;
     }
     let mut client = empty_rect();
     let _ = GetClientRect(hwnd, &mut client);
@@ -824,19 +759,10 @@ unsafe fn paint(hwnd: HWND, state: &NativeSurfaceState) -> Vec<i32> {
     );
     SetBkMode(hdc, TRANSPARENT as i32);
 
-    let mut drawn_progress = Vec::with_capacity(state.notifications.len());
     for (notification, layout) in state.notifications.iter().zip(layouts.iter()) {
         let (background, foreground, body_color, tone, border) = colors(notification, state);
         let brush = CreateSolidBrush(background);
-        let pen = CreatePen(
-            PS_SOLID,
-            if state.surface == Surface::Sidebar {
-                (2.0 * state.scale).round() as i32
-            } else {
-                (1.0 * state.scale).round() as i32
-            },
-            border,
-        );
+        let pen = CreatePen(PS_SOLID, (1.0 * state.scale).round() as i32, border);
         let old_brush = SelectObject(hdc, brush as _);
         let old_pen = SelectObject(hdc, pen as _);
 
@@ -851,8 +777,8 @@ unsafe fn paint(hwnd: HWND, state: &NativeSurfaceState) -> Vec<i32> {
                 layout.body_top,
                 layout.body_right,
                 layout.body_bottom,
-                (18.0 * state.scale).round() as i32,
-                (18.0 * state.scale).round() as i32,
+                (28.0 * state.scale).round() as i32,
+                (28.0 * state.scale).round() as i32,
             );
             let inset = (12.0 * state.scale).round() as i32;
             let body = if notification.body.trim().is_empty() {
@@ -861,14 +787,26 @@ unsafe fn paint(hwnd: HWND, state: &NativeSurfaceState) -> Vec<i32> {
                 notification.body.as_str()
             };
             if !body.trim().is_empty() {
+                let text_left = layout.body_left + inset;
+                let text_right = layout.body_right - inset;
+                let body_height = (layout.body_bottom - layout.body_top).max(1);
+                let text_height = measure_text_height(
+                    body,
+                    (text_right - text_left).max(1),
+                    12.0,
+                    false,
+                    state.scale,
+                )
+                .min(body_height);
+                let text_top = layout.body_top + (body_height - text_height) / 2;
                 draw_text(
                     hdc,
                     body,
                     RECT {
-                        left: layout.body_left + inset,
-                        top: layout.body_top + (5.0 * state.scale).round() as i32,
-                        right: layout.body_right - inset,
-                        bottom: layout.body_bottom - (10.0 * state.scale).round() as i32,
+                        left: text_left,
+                        top: text_top,
+                        right: text_right,
+                        bottom: text_top + text_height,
                     },
                     body_color,
                     12.0,
@@ -883,8 +821,8 @@ unsafe fn paint(hwnd: HWND, state: &NativeSurfaceState) -> Vec<i32> {
                 layout.body_top,
                 layout.body_right,
                 layout.body_bottom,
-                (16.0 * state.scale).round() as i32,
-                (16.0 * state.scale).round() as i32,
+                (24.0 * state.scale).round() as i32,
+                (24.0 * state.scale).round() as i32,
             );
             let stripe = RECT {
                 left: layout.body_left + (1.0 * state.scale).round() as i32,
@@ -947,24 +885,12 @@ unsafe fn paint(hwnd: HWND, state: &NativeSurfaceState) -> Vec<i32> {
             }
         }
 
-        let mut progress = progress_rect(*layout, state.surface, state.scale);
-        let progress_width = progress_width(notification, progress);
-        drawn_progress.push(progress_width);
-        let track = CreateSolidBrush(progress_track_color(state.surface));
-        FillRect(hdc, &progress, track);
-        let _ = DeleteObject(track as _);
-        progress.right = progress.left + progress_width;
-        let progress_brush = CreateSolidBrush(tone);
-        FillRect(hdc, &progress, progress_brush);
-        let _ = DeleteObject(progress_brush as _);
-
         let _ = SelectObject(hdc, old_pen);
         let _ = SelectObject(hdc, old_brush);
         let _ = DeleteObject(pen as _);
         let _ = DeleteObject(brush as _);
     }
     let _ = EndPaint(hwnd, &paint);
-    drawn_progress
 }
 
 unsafe fn draw_text(
@@ -1043,7 +969,33 @@ unsafe fn colors(
     } else {
         (default_foreground, default_body)
     };
+    let border = if state.surface == Surface::Sidebar && custom_background {
+        bubble_border(background)
+    } else {
+        border
+    };
     (background, foreground, body_color, tone, border)
+}
+
+fn bubble_border(background: u32) -> u32 {
+    let red = (background & 0xff) as u8;
+    let green = ((background >> 8) & 0xff) as u8;
+    let blue = ((background >> 16) & 0xff) as u8;
+    let luminance = red as f64 * 0.299 + green as f64 * 0.587 + blue as f64 * 0.114;
+    let target = if luminance > 150.0 {
+        rgb(0, 0, 0)
+    } else {
+        rgb(255, 255, 255)
+    };
+    let mix = if luminance > 150.0 { 0.16 } else { 0.22 };
+    let blend = |channel: u32, target_channel: u32| {
+        (channel as f64 * (1.0 - mix) + target_channel as f64 * mix).round() as u8
+    };
+    rgb(
+        blend(red as u32, target & 0xff),
+        blend(green as u32, (target >> 8) & 0xff),
+        blend(blue as u32, (target >> 16) & 0xff),
+    )
 }
 
 const fn rgb(red: u8, green: u8, blue: u8) -> u32 {
@@ -1071,11 +1023,4 @@ fn parse_hex_color(value: &str) -> Option<u32> {
     let green = u8::from_str_radix(&hex[2..4], 16).ok()?;
     let blue = u8::from_str_radix(&hex[4..6], 16).ok()?;
     Some(rgb(red, green, blue))
-}
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
 }

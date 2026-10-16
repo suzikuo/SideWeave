@@ -1,4 +1,5 @@
 import { listen } from '@tauri-apps/api/event'
+import { convertFileSrc } from '@tauri-apps/api/core'
 import { EVENTS, getState } from './api'
 import type { Settings, StateSnapshot } from './types'
 
@@ -11,9 +12,19 @@ export type SkinId = (typeof SKINS)[number]['id']
 
 /** 应用主题（data-theme）× 皮肤（data-skin）与强调色到 documentElement */
 export function applyTheme(settings: Settings) {
-  const { theme_mode, accent_color, skin } = settings.appearance
-  const desktopNotificationOpacity = settings.notifications?.desktop_background_opacity ?? 0.92
-  const bubbleNotificationOpacity = settings.notifications?.bubble_background_opacity ?? 0.92
+  const {
+    theme_mode,
+    accent_color,
+    skin,
+    background_image_path,
+    background_image_fit,
+    background_image_apply_to_sidebar,
+    background_image_opacity,
+    background_image_blur
+  } = settings.appearance
+  const desktopNotificationOpacity = settings.notifications?.desktop_background_opacity ?? 0.94
+  const bubbleNotificationOpacity = settings.notifications?.bubble_background_opacity ?? 0.9
+  const previewPanelOpacity = settings.appearance.preview_panel_opacity ?? 0.97
   const notificationRoot = document.documentElement
   const mode =
     theme_mode === 'system'
@@ -32,6 +43,14 @@ export function applyTheme(settings: Settings) {
       : 'default'
     removeUserSkinStyle()
   }
+  applyAppBackgroundImage({
+    path: background_image_path,
+    fit: background_image_fit,
+    applyToSidebar: background_image_apply_to_sidebar,
+    opacity: background_image_opacity,
+    previewOpacity: settings.appearance.preview_image_opacity ?? 0.7,
+    blur: background_image_blur
+  })
   // 强调色为出厂默认值时不内联注入，让皮肤调色板决定 accent；
   // 用户显式改过强调色则覆盖皮肤
   if (/^#[0-9A-Fa-f]{6}$/.test(accent_color) && accent_color.toLowerCase() !== '#006874') {
@@ -42,6 +61,8 @@ export function applyTheme(settings: Settings) {
 
   notificationRoot.style.setProperty('--notification-desktop-background-opacity', String(desktopNotificationOpacity))
   notificationRoot.style.setProperty('--notification-bubble-background-strength', `${Math.round(bubbleNotificationOpacity * 100)}%`)
+  notificationRoot.style.setProperty('--preview-panel-opacity', String(previewPanelOpacity))
+  notificationRoot.style.setProperty('--preview-panel-opacity-percent', `${Math.round(previewPanelOpacity * 100)}%`)
   // Keep the old variables available to custom skins that still reference them.
   notificationRoot.style.setProperty('--notification-background-opacity', String(desktopNotificationOpacity))
   notificationRoot.style.setProperty(
@@ -52,6 +73,15 @@ export function applyTheme(settings: Settings) {
     ['--notification-custom-desktop-background', settings.notifications?.desktop_background_color],
     ['--notification-custom-bubble-background', settings.notifications?.bubble_background_color]
   ] as const
+  const bubbleBackground = settings.notifications?.bubble_background_color
+  if (bubbleBackground && /^#[0-9A-Fa-f]{6}$/.test(bubbleBackground)) {
+    notificationRoot.style.setProperty(
+      '--notification-custom-bubble-background-fill',
+      hexToRgba(bubbleBackground, Math.max(0, Math.min(1, bubbleNotificationOpacity)))
+    )
+  } else {
+    notificationRoot.style.removeProperty('--notification-custom-bubble-background-fill')
+  }
   for (const [property, color] of notificationColors) {
     if (color && /^#[0-9A-Fa-f]{6}$/.test(color)) {
       notificationRoot.style.setProperty(property, color)
@@ -76,6 +106,64 @@ export function applyTheme(settings: Settings) {
         notificationRoot.style.removeProperty('--notification-custom-bubble-title')
       }
     }
+  }
+}
+
+function applyAppBackgroundImage(background: {
+  path: string
+  fit: 'cover' | 'fill' | 'contain'
+  applyToSidebar: boolean
+  opacity: number
+  previewOpacity: number
+  blur: number
+}) {
+  const root = document.documentElement
+  const pathname = window.location.pathname
+  const isSidebarSurface = /\/sidebar\.html$/.test(pathname)
+  const isDetailSurface = /\/detail\.html$/.test(pathname)
+  const isPreviewSurface = /\/preview\.html$/.test(pathname)
+  const shouldApply = Boolean(background.path) && (isDetailSurface || isPreviewSurface || (isSidebarSurface && background.applyToSidebar))
+  if (!shouldApply) {
+    root.style.removeProperty('--app-wallpaper-image')
+    root.style.removeProperty('--app-wallpaper-size')
+    root.style.removeProperty('--app-wallpaper-opacity')
+    root.style.removeProperty('--app-wallpaper-blur')
+    if (isDetailSurface) {
+      root.style.removeProperty('--detail-shell-overlay')
+      root.style.removeProperty('--detail-image')
+    }
+    if (isSidebarSurface) root.style.removeProperty('--rail-image')
+    return
+  }
+
+  try {
+    const source = convertFileSrc(background.path)
+    root.style.setProperty('--app-wallpaper-image', `url(${JSON.stringify(source)})`)
+    root.style.setProperty('--app-wallpaper-size', background.fit === 'fill' ? '100% 100%' : background.fit)
+    const opacity = isPreviewSurface ? background.previewOpacity : background.opacity
+    root.style.setProperty('--app-wallpaper-opacity', String(Math.max(0, Math.min(1, opacity))))
+    root.style.setProperty('--app-wallpaper-blur', `${Math.max(0, Math.min(24, background.blur))}px`)
+    if (isDetailSurface) {
+      root.style.setProperty('--detail-shell-overlay', 'transparent')
+      // Use the app-wide wallpaper in place of the skin's separate detail wallpaper layer.
+      root.style.setProperty('--detail-image', 'none')
+      root.style.removeProperty('--rail-image')
+    } else if (isSidebarSurface) {
+      // Use the app-wide wallpaper in place of the skin's separate sidebar wallpaper layer.
+      root.style.setProperty('--rail-image', 'none')
+      root.style.removeProperty('--detail-shell-overlay')
+      root.style.removeProperty('--detail-image')
+    }
+  } catch {
+    root.style.removeProperty('--app-wallpaper-image')
+    root.style.removeProperty('--app-wallpaper-size')
+    root.style.removeProperty('--app-wallpaper-opacity')
+    root.style.removeProperty('--app-wallpaper-blur')
+    if (isDetailSurface) {
+      root.style.removeProperty('--detail-shell-overlay')
+      root.style.removeProperty('--detail-image')
+    }
+    if (isSidebarSurface) root.style.removeProperty('--rail-image')
   }
 }
 

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import Button from '@/components/ui/button/Button.vue'
 import { computed, ref, watch } from 'vue'
 import { setSetting, setSkinAppearance } from '../lib/api'
 import type { InstalledSkinAppearance, ResolvedSkinDefaults } from '../lib/skinAppearance'
@@ -291,15 +292,15 @@ const fmtPx = (value: number) => `${value} px`
       </div>
 
       <div class="defaults-actions">
-        <button class="btn" :disabled="busy || !hasCustomDefaults" @click="restoreRecommended">
+        <Button variant="outline" size="sm" class="btn" :disabled="busy || !hasCustomDefaults" @click="restoreRecommended">
           <Icon name="refresh" :size="14" /> 恢复推荐值
-        </button>
-        <button class="btn" :disabled="busy || isActiveSkin" @click="applyDefaults">
+        </Button>
+        <Button variant="outline" size="sm" class="btn" :disabled="busy || isActiveSkin" @click="applyDefaults">
           <Icon name="check" :size="14" /> {{ isActiveSkin ? '当前正在使用' : '应用默认参数' }}
-        </button>
-        <button class="btn accent" :disabled="busy" @click="saveDefaults">
+        </Button>
+        <Button variant="default" size="sm" class="btn accent" :disabled="busy" @click="saveDefaults">
           <Icon name="check" :size="14" /> {{ busy ? '保存中…' : isActiveSkin ? '保存并应用' : '保存默认值' }}
-        </button>
+        </Button>
       </div>
     </template>
 

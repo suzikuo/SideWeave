@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import Button from '@/components/ui/button/Button.vue'
+import Input from '@/components/ui/input/Input.vue'
+import { TabsList, TabsRoot, TabsTrigger } from 'reka-ui'
 /** 皮肤中心：浏览 SideWeave 市场，安装 / 应用 / 更新 / 移除用户皮肤 */
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import Icon from '../ui/Icon.vue'
@@ -328,15 +331,15 @@ async function removeInstalled(item: InstalledItem) {
         <span v-if="updatedAtText" class="chip updated-time" title="市场目录更新时间">目录更新：{{ updatedAtText }}</span>
       </div>
       <div class="heading-actions">
-        <button class="btn" :disabled="loading || importingLocal" @click="importLocal"><Icon name="plus" :size="14" />本地导入</button>
-        <button class="btn" :disabled="loading" @click="reload"><Icon name="refresh" :size="14" :class="{ spin: loading }" />刷新目录</button>
+        <Button variant="outline" size="sm" class="btn" :disabled="loading || importingLocal" @click="importLocal"><Icon name="plus" :size="14" />本地导入</Button>
+        <Button variant="outline" size="sm" class="btn" :disabled="loading" @click="reload"><Icon name="refresh" :size="14" :class="{ spin: loading }" />刷新目录</Button>
       </div>
     </header>
 
     <section class="market-controls" aria-label="皮肤市场工具">
       <label class="search-field">
         <Icon name="search" :size="16" />
-        <input v-model="searchQuery" type="search" placeholder="搜索皮肤名称、描述或发布者…" aria-label="搜索皮肤" />
+        <Input v-model="searchQuery" class="market-search-input" type="search" placeholder="搜索皮肤名称、描述或发布者…" aria-label="搜索皮肤" />
         <button v-if="searchQuery" class="clear-search" type="button" aria-label="清除搜索" @click="searchQuery = ''"><Icon name="x" :size="14" /></button>
       </label>
       <div class="control-actions">
@@ -350,16 +353,18 @@ async function removeInstalled(item: InstalledItem) {
       </div>
     </section>
 
-    <nav class="market-tabs" aria-label="皮肤分类">
-      <button class="market-tab" :class="{ active: activeTab === 'discover' }" @click="activeTab = 'discover'">发现 <span>{{ catalogItems.length }}</span></button>
-      <button class="market-tab" :class="{ active: activeTab === 'installed' }" @click="activeTab = 'installed'">已安装 <span>{{ installed.length }}</span></button>
-      <button class="market-tab" :class="{ active: activeTab === 'updates' }" @click="activeTab = 'updates'">有更新 <span :class="{ 'count-warn': updateCount }">{{ updateCount }}</span></button>
-    </nav>
+    <TabsRoot v-model="activeTab" class="market-tabs-root">
+      <TabsList class="market-tabs" aria-label="皮肤分类">
+        <TabsTrigger value="discover" class="market-tab">发现 <span>{{ catalogItems.length }}</span></TabsTrigger>
+        <TabsTrigger value="installed" class="market-tab">已安装 <span>{{ installed.length }}</span></TabsTrigger>
+        <TabsTrigger value="updates" class="market-tab">有更新 <span :class="{ 'count-warn': updateCount }">{{ updateCount }}</span></TabsTrigger>
+      </TabsList>
+    </TabsRoot>
 
     <div v-if="loading" class="state"><Icon name="refresh" :size="22" class="spin" /><p class="state-title">正在加载市场…</p></div>
     <div v-else-if="error" class="state">
       <Icon name="info" :size="22" /><p class="state-title">市场加载失败</p><p class="state-desc">{{ error }}</p>
-      <button class="btn" @click="reload"><Icon name="refresh" :size="14" />重试</button>
+      <Button variant="outline" size="sm" class="btn" @click="reload"><Icon name="refresh" :size="14" />重试</Button>
     </div>
 
     <section v-else class="market-content" aria-live="polite">
@@ -384,15 +389,15 @@ async function removeInstalled(item: InstalledItem) {
             <p v-if="item.repository" class="item-source">来源：{{ item.repository }}</p>
           </div>
           <div class="item-actions">
-            <button v-if="installedOf(item.id)?.updateVersion" class="btn update" :disabled="isInstalling(item.id)" @click="updateCatalogItem(item)">
+            <Button variant="outline" size="sm" v-if="installedOf(item.id)?.updateVersion" class="btn update" :disabled="isInstalling(item.id)" @click="updateCatalogItem(item)">
               <Icon name="refresh" :size="13" :class="{ spin: isInstalling(item.id) }" />{{ isInstalling(item.id) ? '更新中…' : '更新' }}
-            </button>
-            <button v-else-if="installedOf(item.id)" class="btn apply" :disabled="isCurrent(item.id)" @click="applyCatalogItem(item)">
+            </Button>
+            <Button variant="outline" size="sm" v-else-if="installedOf(item.id)" class="btn apply" :disabled="isCurrent(item.id)" @click="applyCatalogItem(item)">
               <Icon name="info" :size="13" />{{ isCurrent(item.id) ? '使用中' : '详情' }}
-            </button>
-            <button v-else class="btn accent" :disabled="isInstalling(item.id)" @click="install(item)">
+            </Button>
+            <Button variant="default" size="sm" v-else class="btn accent" :disabled="isInstalling(item.id)" @click="install(item)">
               <Icon :name="isInstalling(item.id) ? 'refresh' : 'plus'" :size="13" :class="{ spin: isInstalling(item.id) }" />{{ isInstalling(item.id) ? '安装中…' : '安装' }}
-            </button>
+            </Button>
           </div>
         </article>
       </div>
@@ -409,11 +414,11 @@ async function removeInstalled(item: InstalledItem) {
             </div>
           </div>
           <div class="item-actions">
-            <button class="btn apply" :disabled="isCurrent(item.id)" @click="applySkin(item)"><Icon name="check" :size="13" />{{ isCurrent(item.id) ? '使用中' : '应用' }}</button>
-            <button v-if="item.updateVersion" class="btn update" :disabled="isInstalling(item.id)" :title="'更新到 ' + item.updateVersion" @click="updateInstalled(item)">
+            <Button variant="outline" size="sm" class="btn apply" :disabled="isCurrent(item.id)" @click="applySkin(item)"><Icon name="check" :size="13" />{{ isCurrent(item.id) ? '使用中' : '应用' }}</Button>
+            <Button variant="outline" size="sm" v-if="item.updateVersion" class="btn update" :disabled="isInstalling(item.id)" :title="'更新到 ' + item.updateVersion" @click="updateInstalled(item)">
               <Icon name="refresh" :size="13" :class="{ spin: isInstalling(item.id) }" />{{ isInstalling(item.id) ? '更新中…' : '更新' }}
-            </button>
-            <button class="btn danger" :class="{ confirming: confirmRemove[item.id] }" @click="removeInstalled(item)"><Icon name="trash" :size="13" />{{ confirmRemove[item.id] ? '确认移除' : '移除' }}</button>
+            </Button>
+            <Button variant="destructive" size="sm" class="btn danger" :class="{ confirming: confirmRemove[item.id] }" @click="removeInstalled(item)"><Icon name="trash" :size="13" />{{ confirmRemove[item.id] ? '确认移除' : '移除' }}</Button>
           </div>
         </article>
       </div>
@@ -421,7 +426,7 @@ async function removeInstalled(item: InstalledItem) {
         <div class="empty-icon"><Icon name="palette" :size="22" /></div>
         <strong>{{ searchQuery ? '没有找到匹配的皮肤' : activeTab === 'updates' ? '暂时没有可更新的皮肤' : activeTab === 'installed' ? '还没有安装皮肤' : '市场目录中暂无皮肤' }}</strong>
         <p>{{ searchQuery ? '试试其他关键词。' : '安装后的皮肤会显示在这里。' }}</p>
-        <button v-if="searchQuery" class="btn" @click="searchQuery = ''">清除搜索</button>
+        <Button variant="outline" size="sm" v-if="searchQuery" class="btn" @click="searchQuery = ''">清除搜索</Button>
       </div>
     </section>
     </template>
@@ -752,4 +757,43 @@ async function removeInstalled(item: InstalledItem) {
   .heading-actions .btn { flex: 1; }
   .results-heading > div { align-items: flex-start; flex-direction: column; gap: 2px; }
 }
+
+.market { gap: 11px; }
+.market-tabs-root { display: contents; }
+.market-heading { min-height: 30px; padding: 0; border: 0; }
+.market-summary .chip { border: 1px solid var(--border); border-radius: 5px; background: var(--background); color: var(--muted-foreground); font-size: 9px; }
+.market-summary .chip.accent { border-color: color-mix(in srgb, var(--primary) 28%, var(--border)); background: color-mix(in srgb, var(--primary) 7%, var(--background)); color: var(--primary); }
+.market-controls { gap: 8px; padding: 0; border: 0; background: transparent; }
+.search-field { min-height: 34px; border: 1px solid var(--input); border-radius: 6px; background: var(--background); color: var(--muted-foreground); box-shadow: 0 1px 2px rgb(0 0 0 / 3%); }
+.search-field:focus-within { border-color: var(--ring); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 20%, transparent); }
+.search-field input { color: var(--foreground); font-size: 10px; }
+.search-field :deep(.market-search-input) { height: 32px; padding: 0; border: 0; background: transparent; box-shadow: none; font-size: 10px; }
+.search-field :deep(.market-search-input:focus-visible) { outline: 0; box-shadow: none; }
+.search-field input::placeholder { color: var(--muted-foreground); }
+.select-control { min-height: 34px; border-color: var(--input); border-radius: 6px; background-color: var(--background); color: var(--foreground); font-size: 9px; }
+.market :deep(button.btn) { min-height: 31px; border-radius: 6px; font-size: 9px; }
+.market :deep(button.btn.accent) { border-color: var(--primary); background: var(--primary); color: var(--primary-foreground); }
+.market-tabs { gap: 3px; border-bottom: 1px solid var(--border); }
+.market-tab { min-height: 32px; padding: 0 10px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; color: var(--muted-foreground); font-size: 10px; }
+.market-tab[data-state='active'] { border-bottom-color: var(--primary); background: transparent; color: var(--foreground); }
+.market-tab span { border: 1px solid var(--border); border-radius: 4px; background: var(--muted); color: var(--muted-foreground); font-size: 8px; }
+.results-heading { padding: 0 1px; }
+.results-heading h3 { font-size: 11px; font-weight: 600; }
+.results-heading span, .filter-summary { color: var(--muted-foreground); font-size: 9px; }
+.results { gap: 8px; }
+.results.grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 290px), 1fr)); }
+.market-item { padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); box-shadow: 0 1px 2px rgb(0 0 0 / 3%); transition: border-color .15s, box-shadow .15s, transform .15s; }
+.market-item:hover { transform: translateY(-1px); border-color: color-mix(in srgb, var(--primary) 35%, var(--border)); box-shadow: 0 5px 14px rgb(0 0 0 / 7%); }
+.results.grid .market-item { min-height: 154px; gap: 9px; }
+.product-icon { width: 34px; height: 34px; border: 1px solid var(--border); border-radius: 7px; background: var(--muted); color: var(--foreground); }
+.item-title strong { color: var(--foreground); font-size: 11px; font-weight: 600; }
+.item-subtitle, .item-desc, .item-source { color: var(--muted-foreground); }
+.item-desc { font-size: 9px; line-height: 1.5; }
+.chip, .ver-badge, .installed-badge { padding: 2px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--background); color: var(--muted-foreground); font-size: 8px; }
+.chip.verified, .chip.accent { border-color: color-mix(in srgb, var(--primary) 28%, var(--border)); background: color-mix(in srgb, var(--primary) 7%, var(--background)); color: var(--primary); }
+.chip.warn { border-color: color-mix(in srgb, var(--warning) 28%, var(--border)); background: color-mix(in srgb, var(--warning) 6%, var(--background)); color: var(--warning); }
+.item-actions { gap: 5px; }
+.empty-state { min-height: 150px; border-color: var(--border); border-radius: 8px; background: var(--background); }
+.empty-state strong { color: var(--foreground); font-size: 10px; }
+.empty-state p { color: var(--muted-foreground); font-size: 9px; }
 </style>

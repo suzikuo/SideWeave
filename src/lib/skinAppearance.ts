@@ -6,6 +6,8 @@ export const OPACITY_SETTING_KEYS = [
   'sidebar_image_opacity',
   'detail_panel_opacity',
   'control_panel_opacity',
+  'preview_panel_opacity',
+  'preview_image_opacity',
   'detail_image_opacity',
   'component_opacity'
 ] as const
@@ -21,8 +23,10 @@ export interface InstalledSkinAppearance {
 const HOST_OPACITY_DEFAULTS: Record<OpacitySettingKey, number> = {
   sidebar_panel_opacity: 0,
   sidebar_image_opacity: 0,
-  detail_panel_opacity: 0.8,
+  detail_panel_opacity: 0.85,
   control_panel_opacity: 0.85,
+  preview_panel_opacity: 0.97,
+  preview_image_opacity: 0.7,
   detail_image_opacity: 0,
   component_opacity: 1
 }
@@ -32,6 +36,8 @@ const MANIFEST_KEY_BY_SETTING: Record<OpacitySettingKey, keyof SkinAppearanceDef
   sidebar_image_opacity: 'sidebarImageOpacity',
   detail_panel_opacity: 'detailPanelOpacity',
   control_panel_opacity: 'controlPanelOpacity',
+  preview_panel_opacity: 'previewPanelOpacity',
+  preview_image_opacity: 'previewImageOpacity',
   detail_image_opacity: 'detailImageOpacity',
   component_opacity: 'componentOpacity'
 }
@@ -66,6 +72,8 @@ export function applySkinWithRecommendedOpacity(
     sidebarImageOpacity: defaults.sidebar_image_opacity,
     detailPanelOpacity: defaults.detail_panel_opacity,
     controlPanelOpacity: defaults.control_panel_opacity,
+    previewPanelOpacity: defaults.preview_panel_opacity,
+    previewImageOpacity: defaults.preview_image_opacity,
     detailImageOpacity: defaults.detail_image_opacity,
     componentOpacity: defaults.component_opacity
   })

@@ -273,8 +273,11 @@ watch(() => props.active, (active) => {
 
 watch(
   () => [
+    settingsRef.value?.appearance.skin,
     settingsRef.value?.appearance.detail_panel_opacity,
+    settingsRef.value?.appearance.control_panel_opacity,
     settingsRef.value?.appearance.component_opacity,
+    settingsRef.value?.appearance.glass_effect_enabled,
     settingsRef.value?.appearance.detail_image_opacity
   ],
   syncFrameTheme
@@ -312,14 +315,20 @@ function reply(source: MessageEventSource | null, message: UopResponse) {
 function themeMessage(id: string) {
   const root = document.documentElement
   const styles = getComputedStyle(root)
+  const appearance = settingsRef.value?.appearance
   const variables: Record<string, string> = {}
   for (const name of THEME_VARIABLES) {
     const value = styles.getPropertyValue(name).trim()
     if (value) variables[name] = value
   }
-  variables['--detail-panel-opacity'] = String(settingsRef.value?.appearance.detail_panel_opacity ?? 1)
-  variables['--component-opacity'] = String(settingsRef.value?.appearance.component_opacity ?? 1)
-  variables['--detail-image-opacity'] = String(settingsRef.value?.appearance.detail_image_opacity ?? 1)
+  variables['--detail-panel-opacity'] = String(
+    appearance?.skin === 'default'
+      ? appearance.control_panel_opacity
+      : appearance?.detail_panel_opacity ?? 1
+  )
+  variables['--component-opacity'] = String(appearance?.component_opacity ?? 1)
+  variables['--component-glass-filter'] = appearance?.glass_effect_enabled ? 'blur(4px)' : 'none'
+  variables['--detail-image-opacity'] = String(appearance?.detail_image_opacity ?? 1)
   return {
     __agileTiles: true,
     type: 'theme',

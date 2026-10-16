@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import Button from '@/components/ui/button/Button.vue'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
@@ -69,12 +70,15 @@ const effectiveTheme = computed(() => {
 const detailStyle = computed(() => ({
   '--detail-bg': effectiveTheme.value === 'light' ? '#f4f5f7' : '#101013',
   '--detail-panel-opacity': String(
-    surface.value === 'control'
-      ? settingsRef.value?.appearance.control_panel_opacity ?? 1
-      : settingsRef.value?.appearance.detail_panel_opacity ?? 1
+    settingsRef.value?.appearance.skin === 'default'
+      ? settingsRef.value.appearance.control_panel_opacity
+      : surface.value === 'control'
+        ? settingsRef.value?.appearance.control_panel_opacity ?? 1
+        : settingsRef.value?.appearance.detail_panel_opacity ?? 1
   ),
   '--detail-image-opacity': String(settingsRef.value?.appearance.detail_image_opacity ?? 1),
-  '--component-opacity': String(settingsRef.value?.appearance.component_opacity ?? 1)
+  '--component-opacity': String(settingsRef.value?.appearance.component_opacity ?? 1),
+  '--component-glass-filter': settingsRef.value?.appearance.glass_effect_enabled ? 'blur(4px)' : 'none'
 }))
 
 const isSkinHomePage = computed(() => !page.value || page.value === 'home')
@@ -143,8 +147,8 @@ onUnmounted(() => {
     <div v-show="surface === 'control' && (!skinSurfaceReady || showNativeControl)" class="control-surface" :style="detailStyle" @contextmenu.prevent>
       <header class="control-header" data-tauri-drag-region>
         <div class="control-title" data-tauri-drag-region>
-          <span class="control-mark" data-tauri-drag-region>AT</span>
-          <span data-tauri-drag-region>SideWeave <small data-tauri-drag-region>控制中心</small></span>
+          <span class="control-mark" data-tauri-drag-region><Icon name="command" :size="15" /></span>
+          <span class="control-breadcrumb" data-tauri-drag-region><strong data-tauri-drag-region>SideWeave</strong><Icon name="chevron-right" :size="13" /><small data-tauri-drag-region>控制中心</small></span>
         </div>
         <button
           v-if="showNativeControl"
@@ -153,7 +157,9 @@ onUnmounted(() => {
           @click="showNativeControl = false"
         >返回皮肤控制中心</button>
         <div class="control-window-actions" :class="{ 'push-right': !showNativeControl }" data-tauri-drag-region="false">
-          <button
+          <Button
+            variant="ghost"
+            size="icon-sm"
             class="control-window-button"
             :class="{ pinned: alwaysOnTop }"
             type="button"
@@ -163,13 +169,13 @@ onUnmounted(() => {
             @click="toggleAlwaysOnTop"
           >
             <Icon name="pin" :size="16" />
-          </button>
-          <button class="control-window-button" type="button" aria-label="最小化控制中心" title="最小化" @click="minimizeWindow">
+          </Button>
+          <Button variant="ghost" size="icon-sm" class="control-window-button" type="button" aria-label="最小化控制中心" title="最小化" @click="minimizeWindow">
             <Icon name="minus" :size="17" />
-          </button>
-          <button class="control-close" type="button" aria-label="关闭控制中心" title="关闭" @click="closeDetail">
+          </Button>
+          <Button variant="ghost" size="icon-sm" class="control-close" type="button" aria-label="关闭控制中心" title="关闭" @click="closeDetail">
             <Icon name="x" :size="17" />
-          </button>
+          </Button>
         </div>
       </header>
       <div class="control-body">
@@ -206,6 +212,8 @@ onUnmounted(() => {
 .detail-surface {
   position: relative;
   overflow: hidden;
+  box-sizing: border-box;
+  padding: 7px;
   background: transparent;
 }
 
@@ -223,10 +231,10 @@ onUnmounted(() => {
 .detail-shell {
   position: relative;
   z-index: 1;
+  width: 100%;
   height: 100%;
   overflow: hidden;
-  border-radius: calc(var(--radius-lg, 18px) + 2px);
-  background: color-mix(in srgb, var(--detail-bg, var(--bg)) calc(var(--detail-panel-opacity, 1) * 100%), transparent);
+  background: transparent;
 }
 
 .detail-shell.plugin-detail-shell {
@@ -259,7 +267,10 @@ onUnmounted(() => {
   position: absolute;
   inset: 0;
   z-index: 0;
-  background: color-mix(in srgb, var(--detail-bg, var(--bg)) calc(var(--detail-panel-opacity, 1) * 100%), transparent);
+  background: var(
+    --detail-shell-overlay,
+    color-mix(in srgb, var(--detail-bg, var(--bg)) calc(var(--detail-panel-opacity, 1) * 100%), transparent)
+  );
   pointer-events: none;
 }
 
@@ -378,4 +389,26 @@ onUnmounted(() => {
   min-height: 0;
   overflow: hidden;
 }
+
+.control-header {
+  min-height: 42px;
+  padding: 0 13px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--background) 94%, transparent);
+  backdrop-filter: blur(16px);
+}
+.control-title { gap: 9px; font-size: 11px; }
+.control-mark { width: 25px; height: 25px; border: 1px solid color-mix(in srgb, var(--primary) 35%, var(--border)); border-radius: 6px; background: var(--primary); }
+.control-breadcrumb { display: flex; align-items: center; gap: 8px; color: var(--muted-foreground); }
+.control-breadcrumb strong { color: var(--foreground); font-size: 11px; font-weight: 600; }
+.control-breadcrumb svg { opacity: .65; }
+.control-breadcrumb small { color: var(--muted-foreground); font-size: 10px; font-weight: 450; }
+.control-window-actions { gap: 3px; }
+.control-window-button,
+.control-close { width: 28px; height: 28px; padding: 0; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--muted-foreground); box-shadow: none; }
+.control-window-button:hover,
+.control-window-button.pinned { border-color: var(--border); background: var(--muted); color: var(--foreground); }
+.control-close:hover { border-color: color-mix(in srgb, var(--destructive) 30%, transparent); background: color-mix(in srgb, var(--destructive) 10%, transparent); color: var(--destructive); }
+.control-return { margin-left: auto; padding: 5px 9px; border: 1px solid var(--border); border-radius: 6px; background: var(--background); color: var(--foreground); font-size: 10px; }
+.control-return:hover { border-color: var(--ring); color: var(--primary); }
 </style>

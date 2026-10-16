@@ -29,6 +29,7 @@ use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder,
 };
 use tauri_plugin_autostart::ManagerExt as _;
+use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_global_shortcut::Shortcut;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
@@ -1232,6 +1233,120 @@ fn set_setting(
 }
 
 #[tauri::command]
+async fn choose_background_image(app: AppHandle) -> Result<Option<Settings>, String> {
+    let selected = app
+        .dialog()
+        .file()
+        .set_title("选择背景图片")
+        .add_filter("图片文件", &["png", "jpg", "jpeg", "webp", "bmp", "gif"])
+        .blocking_pick_file();
+    let Some(selected) = selected else {
+        return Ok(None);
+    };
+    let source_path = selected
+        .into_path()
+        .map_err(|error| format!("无法读取所选图片路径：{error}"))?;
+    let old_path = host(&app).settings_clone().appearance.background_image_path;
+    let (stored_path, display_name) = store_background_image(&app, &source_path)?;
+    let value = serde_json::json!({
+        "path": stored_path.to_string_lossy(),
+        "name": display_name,
+    });
+    match set_setting(app.clone(), "appearance".into(), "background_image".into(), value) {
+        Ok(settings) => {
+            remove_managed_background_image(&app, &old_path);
+            Ok(Some(settings))
+        }
+        Err(error) => {
+            remove_managed_background_image(&app, &stored_path.to_string_lossy());
+            Err(error)
+        }
+    }
+}
+
+#[tauri::command]
+fn clear_background_image(app: AppHandle) -> Result<Settings, String> {
+    let old_path = host(&app).settings_clone().appearance.background_image_path;
+    let changed = set_setting(
+        app.clone(),
+        "appearance".into(),
+        "background_image".into(),
+        serde_json::json!({ "path": "", "name": "" }),
+    )?;
+    remove_managed_background_image(&app, &old_path);
+    Ok(changed)
+}
+
+fn store_background_image(app: &AppHandle, source: &Path) -> Result<(PathBuf, String), String> {
+    const MAX_IMAGE_BYTES: u64 = 50 * 1024 * 1024;
+    let metadata = std::fs::metadata(source).map_err(|error| format!("无法读取图片：{error}"))?;
+    if metadata.len() == 0 || metadata.len() > MAX_IMAGE_BYTES {
+        return Err("图片大小必须在 1 字节到 50 MB 之间".into());
+    }
+
+    let reader = image::ImageReader::open(source)
+        .map_err(|error| format!("无法打开图片：{error}"))?
+        .with_guessed_format()
+        .map_err(|error| format!("无法识别图片格式：{error}"))?;
+    let format = reader
+        .format()
+        .ok_or_else(|| "不支持该图片格式".to_string())?;
+    let extension = match format {
+        image::ImageFormat::Png => "png",
+        image::ImageFormat::Jpeg => "jpg",
+        image::ImageFormat::WebP => "webp",
+        image::ImageFormat::Bmp => "bmp",
+        image::ImageFormat::Gif => "gif",
+        _ => return Err("仅支持 PNG、JPG、WebP、BMP 或 GIF 图片".into()),
+    };
+    let (width, height) = reader
+        .into_dimensions()
+        .map_err(|error| format!("图片文件无效：{error}"))?;
+    if width == 0 || height == 0 || width > 24_000 || height > 24_000 {
+        return Err("图片尺寸无效或过大".into());
+    }
+
+    let stem = source
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap_or("background");
+    let safe_stem = stem
+        .chars()
+        .filter(|character| {
+            !character.is_control()
+                && !matches!(*character, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|')
+        })
+        .take(100)
+        .collect::<String>()
+        .trim()
+        .trim_matches('.')
+        .to_string();
+    let display_name = if safe_stem.is_empty() {
+        format!("background.{extension}")
+    } else {
+        format!("{safe_stem}.{extension}")
+    };
+    let directory = paths::app_data_dir(app).join("backgrounds");
+    std::fs::create_dir_all(&directory).map_err(|error| format!("无法创建背景图片目录：{error}"))?;
+    let stored_path = directory.join(format!("{}.{}", uuid::Uuid::new_v4(), extension));
+    std::fs::copy(source, &stored_path).map_err(|error| format!("导入背景图片失败：{error}"))?;
+    Ok((stored_path, display_name))
+}
+
+fn remove_managed_background_image(app: &AppHandle, raw_path: &str) {
+    if raw_path.is_empty() {
+        return;
+    }
+    let directory = paths::app_data_dir(app).join("backgrounds");
+    let (Ok(directory), Ok(path)) = (directory.canonicalize(), Path::new(raw_path).canonicalize()) else {
+        return;
+    };
+    if path.parent() == Some(directory.as_path()) {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+#[tauri::command]
 fn set_skin_appearance(
     app: AppHandle,
     skin_id: String,
@@ -1253,6 +1368,14 @@ fn set_skin_appearance(
         (
             "control_panel_opacity",
             opacity_defaults.control_panel_opacity,
+        ),
+        (
+            "preview_panel_opacity",
+            opacity_defaults.preview_panel_opacity,
+        ),
+        (
+            "preview_image_opacity",
+            opacity_defaults.preview_image_opacity,
         ),
         (
             "detail_image_opacity",
@@ -2560,6 +2683,8 @@ pub fn run() {
             get_performance_status,
             get_main_surface,
             set_setting,
+            choose_background_image,
+            clear_background_image,
             set_skin_appearance,
             set_plugin_enabled,
             set_plugin_sidebar_visible,

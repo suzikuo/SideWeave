@@ -38,6 +38,12 @@ pub struct Appearance {
     pub theme_mode: String,
     pub skin: String,
     pub accent_color: String,
+    pub background_image_path: String,
+    pub background_image_name: String,
+    pub background_image_apply_to_sidebar: bool,
+    pub background_image_fit: String,
+    pub background_image_opacity: f64,
+    pub background_image_blur: f64,
     pub interface_scale: f64,
     pub sidebar_position: String,
     pub collapsed_width: u32,
@@ -46,9 +52,12 @@ pub struct Appearance {
     pub sidebar_panel_opacity: f64,
     pub detail_panel_opacity: f64,
     pub control_panel_opacity: f64,
+    pub preview_panel_opacity: f64,
+    pub preview_image_opacity: f64,
     pub sidebar_image_opacity: f64,
     pub detail_image_opacity: f64,
     pub component_opacity: f64,
+    pub glass_effect_enabled: bool,
     pub sidebar_height_percent: f64,
     pub sidebar_y_offset: i32,
     pub sidebar_x_offset: i32,
@@ -61,17 +70,26 @@ impl Default for Appearance {
             theme_mode: "dark".into(),
             skin: "default".into(),
             accent_color: "#006874".into(),
+            background_image_path: String::new(),
+            background_image_name: String::new(),
+            background_image_apply_to_sidebar: true,
+            background_image_fit: "cover".into(),
+            background_image_opacity: 0.7,
+            background_image_blur: 1.0,
             interface_scale: 1.0,
             sidebar_position: "right".into(),
             collapsed_width: 64,
             icon_size: 36,
             peek_width: 6,
             sidebar_panel_opacity: 0.0,
-            detail_panel_opacity: 0.8,
+            detail_panel_opacity: 0.85,
             control_panel_opacity: 0.85,
+            preview_panel_opacity: 0.97,
+            preview_image_opacity: 0.7,
             sidebar_image_opacity: 0.0,
             detail_image_opacity: 0.0,
             component_opacity: 1.0,
+            glass_effect_enabled: false,
             sidebar_height_percent: 0.8,
             sidebar_y_offset: 0,
             sidebar_x_offset: 0,
@@ -170,6 +188,41 @@ pub fn load_persisted(value: JsonValue) -> LoadedSettings {
                 .entry("bubble_background_opacity")
                 .or_insert(opacity);
         }
+        // Upgrade untouched notification defaults while preserving custom colors and opacity.
+        for (
+            color_key,
+            opacity_key,
+            default_color,
+            default_opacity,
+        ) in [
+            (
+                "desktop_background_color",
+                "desktop_background_opacity",
+                "#18181b",
+                0.94,
+            ),
+            (
+                "bubble_background_color",
+                "bubble_background_opacity",
+                "#ffffff",
+                0.9,
+            ),
+        ] {
+            let opacity_is_old_default = notifications
+                .get(opacity_key)
+                .and_then(JsonValue::as_f64)
+                .map(|opacity| (opacity - 0.92).abs() < 0.0001)
+                .unwrap_or(false);
+            let color_is_empty = notifications
+                .get(color_key)
+                .and_then(JsonValue::as_str)
+                .map(|color| color.trim().is_empty())
+                .unwrap_or(true);
+            if opacity_is_old_default && color_is_empty {
+                notifications.insert(opacity_key.into(), JsonValue::from(default_opacity));
+                notifications.insert(color_key.into(), JsonValue::String(default_color.into()));
+            }
+        }
     }
     let mut settings: Settings = serde_json::from_value(value).unwrap_or_default();
     settings.general.github_mirror = validate_github_mirror(&settings.general.github_mirror)
@@ -220,11 +273,11 @@ impl Default for NotificationSettings {
     fn default() -> Self {
         Self {
             render_mode: "web".into(),
-            background_opacity: 0.92,
-            desktop_background_opacity: 0.92,
-            bubble_background_opacity: 0.92,
-            desktop_background_color: String::new(),
-            bubble_background_color: String::new(),
+            background_opacity: 0.94,
+            desktop_background_opacity: 0.94,
+            bubble_background_opacity: 0.9,
+            desktop_background_color: "#18181b".into(),
+            bubble_background_color: "#ffffff".into(),
         }
     }
 }
@@ -396,6 +449,34 @@ pub fn apply_setting(
             }
         }
         ("appearance", "accent_color") => s.appearance.accent_color = as_color(v)?,
+        ("appearance", "background_image") => {
+            let image = v.as_object().ok_or_else(|| "背景图片设置无效".to_string())?;
+            let path = image.get("path").and_then(JsonValue::as_str)
+                .ok_or_else(|| "背景图片路径无效".to_string())?;
+            let name = image.get("name").and_then(JsonValue::as_str)
+                .ok_or_else(|| "背景图片名称无效".to_string())?;
+            if path.len() > 4096 || name.len() > 256
+                || path.chars().any(char::is_control)
+                || name.chars().any(char::is_control)
+                || path.is_empty() != name.is_empty()
+            {
+                return Err("背景图片设置无效".into());
+            }
+            s.appearance.background_image_path = path.to_string();
+            s.appearance.background_image_name = name.to_string();
+        }
+        ("appearance", "background_image_apply_to_sidebar") => {
+            s.appearance.background_image_apply_to_sidebar = as_bool(v)?;
+        }
+        ("appearance", "background_image_fit") => {
+            s.appearance.background_image_fit = as_enum(v, &["cover", "fill", "contain"])?;
+        }
+        ("appearance", "background_image_opacity") => {
+            s.appearance.background_image_opacity = as_f64_clamped(v, 0.0, 1.0)?;
+        }
+        ("appearance", "background_image_blur") => {
+            s.appearance.background_image_blur = as_f64_clamped(v, 0.0, 24.0)?;
+        }
         ("appearance", "interface_scale") => {
             s.appearance.interface_scale = as_f64_clamped(v, 0.7, 1.6)?
         }
@@ -411,10 +492,18 @@ pub fn apply_setting(
             s.appearance.sidebar_panel_opacity = as_f64_clamped(v, 0.0, 1.0)?
         }
         ("appearance", "detail_panel_opacity") => {
-            s.appearance.detail_panel_opacity = as_f64_clamped(v, 0.0, 1.0)?
+            let opacity = as_f64_clamped(v, 0.0, 1.0)?;
+            s.appearance.detail_panel_opacity = opacity;
+            if s.appearance.skin == "default" {
+                s.appearance.control_panel_opacity = opacity;
+            }
         }
         ("appearance", "control_panel_opacity") => {
-            s.appearance.control_panel_opacity = as_f64_clamped(v, 0.0, 1.0)?
+            let opacity = as_f64_clamped(v, 0.0, 1.0)?;
+            s.appearance.control_panel_opacity = opacity;
+            if s.appearance.skin == "default" {
+                s.appearance.detail_panel_opacity = opacity;
+            }
         }
         ("appearance", "sidebar_image_opacity") => {
             s.appearance.sidebar_image_opacity = as_f64_clamped(v, 0.0, 1.0)?
@@ -422,8 +511,17 @@ pub fn apply_setting(
         ("appearance", "detail_image_opacity") => {
             s.appearance.detail_image_opacity = as_f64_clamped(v, 0.0, 1.0)?
         }
+        ("appearance", "preview_panel_opacity") => {
+            s.appearance.preview_panel_opacity = as_f64_clamped(v, 0.0, 1.0)?
+        }
+        ("appearance", "preview_image_opacity") => {
+            s.appearance.preview_image_opacity = as_f64_clamped(v, 0.0, 1.0)?
+        }
         ("appearance", "component_opacity") => {
             s.appearance.component_opacity = as_f64_clamped(v, 0.0, 1.0)?
+        }
+        ("appearance", "glass_effect_enabled") => {
+            s.appearance.glass_effect_enabled = as_bool(v)?
         }
         ("appearance", "sidebar_height_percent") => {
             s.appearance.sidebar_height_percent = as_f64_clamped(v, 0.2, 1.0)?

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import Button from '@/components/ui/button/Button.vue'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import Icon from '../ui/Icon.vue'
@@ -86,7 +87,13 @@ const pluginName = computed(() => {
 
 const pluginIcon = computed(() => runtimePlugin.value?.manifest.icon || pluginMeta.value?.icon || 'puzzle')
 const pluginChrome = computed(() => runtimePlugin.value?.manifest.ui?.chrome === 'plugin')
-
+const pageTitle = computed(() => {
+  if (!page.value) return '详情页'
+  if (page.value === 'settings') return '快捷设置'
+  if (page.value === 'market-plugins') return '插件中心'
+  if (page.value === 'market-skins') return '皮肤中心'
+  return pluginName.value
+})
 // 内容滚动时在头部下缘浮现渐变遮罩，柔化卡片与滚动内容的交界
 const scrolled = ref(false)
 function onBodyScroll(e: Event) {
@@ -108,25 +115,31 @@ const emptyHint = computed(() => '点击屏幕边缘的圆环即可打开对应�
   <div class="rz sw" @mousedown="beginResize($event, 'SouthWest')" />
   <div class="rz se" @mousedown="beginResize($event, 'SouthEast')" />
 
-  <!-- Pulse 风格详情卡：贴轨道展开的深色圆角卡片 -->
+  <!-- Detail window app shell -->
   <div class="card" :class="{ 'plugin-card': isPluginDetail, 'plugin-custom-chrome': pluginChrome }">
     <header class="card-head" :class="{ scrolled, 'custom-plugin-head': pluginChrome }" data-tauri-drag-region>
-      <div v-if="isPluginDetail && !pluginChrome" class="plugin-identity" data-tauri-drag-region>
-        <span class="plugin-icon" data-tauri-drag-region>
-          <Icon :name="pluginIcon" :size="15" :stroke-width="1.8" />
+      <div v-if="!pluginChrome" class="detail-heading" data-tauri-drag-region>
+        <span class="detail-heading-icon" data-tauri-drag-region>
+          <Icon :name="isPluginDetail ? pluginIcon : 'command'" :size="16" :stroke-width="1.8" />
         </span>
-        <span class="plugin-name" data-tauri-drag-region>{{ pluginName }}</span>
+        <div class="detail-heading-copy" data-tauri-drag-region>
+          <div class="detail-heading-title" data-tauri-drag-region>{{ pageTitle }}</div>
+        </div>
       </div>
       <div class="window-actions" data-tauri-drag-region="false">
-        <button
+        <Button
+          variant="ghost"
+          size="icon-sm"
           class="minimize"
           title="最小化"
           aria-label="最小化窗口"
           @click="emit('minimize-window')"
         >
           <Icon name="minus" :size="15" />
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
           class="pin"
           :class="{ pinned: props.alwaysOnTop }"
           :title="props.alwaysOnTop ? '取消置顶' : '置顶'"
@@ -135,10 +148,10 @@ const emptyHint = computed(() => '点击屏幕边缘的圆环即可打开对应�
           @click="emit('toggle-always-on-top')"
         >
           <Icon name="pin" :size="15" />
-        </button>
-        <button class="close" title="关闭" aria-label="关闭详情卡" @click="closeDetail">
+        </Button>
+        <Button variant="ghost" size="icon-sm" class="close" title="关闭" aria-label="关闭详情卡" @click="closeDetail">
           <Icon name="x" :size="15" />
-        </button>
+        </Button>
       </div>
     </header>
     <main class="card-body" :class="{ 'plugin-body': isPluginDetail }" @scroll="onBodyScroll">
@@ -178,9 +191,9 @@ const emptyHint = computed(() => '点击屏幕边缘的圆环即可打开对应�
   z-index: 1;
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 6px);
-  margin: 3px;
-  border-radius: var(--radius-lg, 18px);
+  height: 100%;
+  margin: 0;
+  border-radius: var(--radius-lg, 10px);
   border: 1px solid var(--border);
   background: color-mix(in srgb, color-mix(in srgb, var(--surface) 84%, transparent) calc(var(--component-opacity, 1) * 100%), transparent);
   box-shadow: var(--shadow);
@@ -193,7 +206,7 @@ const emptyHint = computed(() => '点击屏幕边缘的圆环即可打开对应�
 }
 
 .plugin-custom-chrome {
-  height: 100vh;
+  height: 100%;
   margin: 0;
   border: 0;
   border-radius: 0;
@@ -374,4 +387,39 @@ const emptyHint = computed(() => '点击屏幕边缘的圆环即可打开对应�
 .rz.ne { top: 0; right: 0; width: 12px; height: 12px; cursor: ne-resize; }
 .rz.sw { bottom: 0; left: 0; width: 12px; height: 12px; cursor: sw-resize; }
 .rz.se { bottom: 0; right: 0; width: 12px; height: 12px; cursor: se-resize; }
+
+.card {
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg, 10px);
+  background: color-mix(in srgb, var(--surface) calc(var(--component-opacity, 1) * 100%), transparent);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 9%);
+}
+.card-head {
+  min-height: 46px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(
+    in srgb,
+    color-mix(in srgb, var(--background) 96%, var(--muted))
+      calc(var(--component-opacity, 1) * 100%),
+    transparent
+  );
+}
+.card-head.scrolled { box-shadow: 0 5px 14px rgb(0 0 0 / 5%); }
+.detail-heading { display: flex; min-width: 0; align-items: center; gap: 10px; }
+.detail-heading-icon { display: grid; width: 30px; height: 30px; flex: none; place-items: center; border: 1px solid var(--border); border-radius: 7px; background: var(--muted); color: var(--foreground); }
+.detail-heading-copy { display: flex; min-width: 0; align-items: center; }
+.detail-heading-title { overflow: hidden; color: var(--foreground); font-size: 12px; font-weight: 600; letter-spacing: -.01em; text-overflow: ellipsis; white-space: nowrap; }
+.window-actions { gap: 3px; }
+.window-actions :deep(button) { width: 28px; height: 28px; padding: 0; border: 1px solid transparent; border-radius: 6px; color: var(--muted-foreground); box-shadow: none; }
+.window-actions :deep(button:hover) { border-color: var(--border); background: var(--muted); color: var(--foreground); }
+.window-actions :deep(.close:hover) { border-color: color-mix(in srgb, var(--destructive) 30%, transparent); background: color-mix(in srgb, var(--destructive) 10%, transparent); color: var(--destructive); }
+.window-actions :deep(.pin.pinned) { border-color: var(--border); background: var(--muted); color: var(--primary); }
+.card-body { background: transparent; }
+.card-body.plugin-body { background: transparent; }
+.plugin-custom-chrome .card-head { border: 0; background: transparent; }
+.empty-icon { width: 44px; height: 44px; border-radius: 8px; background: var(--muted); color: var(--muted-foreground); }
+.empty-title { font-size: 12px; font-weight: 600; }
+.empty-hint { font-size: 10px; }
 </style>
