@@ -492,7 +492,7 @@ async function removeInstalled(item: InstalledItem) {
 }
 
 .market-card { cursor: pointer; transition: transform .16s ease, border-color .16s ease, background .16s ease; }
-.market-card:hover, .market-card:focus-visible { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); background: color-mix(in srgb, var(--accent) 4%, var(--surface-subtle)); transform: translateY(-1px); outline: none; }
+.market-card:hover, .market-card:focus-visible { border-color: color-mix(in srgb, var(--primary) 55%, var(--border)); background: color-mix(in srgb, var(--primary) 4%, var(--surface-subtle)); transform: translateY(-1px); outline: none; }
 .market-card .item-id { display: none; }
 .results.discover .item-details { display: none; }
 .results.installed .item-actions, .results.updates .item-actions { display: none; }
@@ -532,8 +532,8 @@ async function removeInstalled(item: InstalledItem) {
 }
 .chip.accent {
   border-color: transparent;
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  color: var(--accent);
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+  color: var(--primary);
 }
 .chip.warn {
   border-color: transparent;
@@ -547,17 +547,17 @@ async function removeInstalled(item: InstalledItem) {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 7px 14px;
-  border-radius: 10px;
+  padding: 0 12px;
+  border-radius: 6px;
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text);
-  font-size: 12.5px;
+  font-size: 13px;
   white-space: nowrap;
 }
 .btn:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--border-strong);
+  color: var(--accent-foreground);
 }
 .btn:disabled {
   opacity: 0.55;
@@ -565,13 +565,13 @@ async function removeInstalled(item: InstalledItem) {
 }
 .btn.accent {
   border-color: transparent;
-  background: var(--accent);
-  color: #fff;
+  background: var(--primary);
+  color: var(--primary-foreground);
   font-weight: 600;
 }
 .btn.accent:hover:not(:disabled) {
   filter: brightness(1.1);
-  color: #fff;
+  color: var(--primary-foreground);
 }
 .btn.update {
   border-color: color-mix(in srgb, var(--warning) 46%, transparent);
@@ -646,7 +646,7 @@ async function removeInstalled(item: InstalledItem) {
   font-size: 13px;
 }
 
-.installed-badge { display: inline-flex; align-items: center; padding: 3px 7px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); font-size: 10px; font-weight: 650; white-space: nowrap; }
+.installed-badge { display: inline-flex; align-items: center; padding: 3px 7px; border-radius: 999px; background: color-mix(in srgb, var(--primary) 14%, transparent); color: var(--primary); font-size: 10px; font-weight: 650; white-space: nowrap; }
 
 .item-author {
   font-size: 11px;
@@ -686,8 +686,8 @@ async function removeInstalled(item: InstalledItem) {
 .ver-badge {
   padding: 1.5px 8px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--accent) 13%, transparent);
-  color: var(--accent);
+  background: color-mix(in srgb, var(--primary) 13%, transparent);
+  color: var(--primary);
   font-size: 10px;
   font-weight: 600;
   white-space: nowrap;
@@ -753,22 +753,22 @@ async function removeInstalled(item: InstalledItem) {
 .market-controls { flex: none; gap: 9px; }
 .control-actions { flex: none; gap: 7px; flex-wrap: wrap; }
 .search-field { display: flex; flex: 1 1 220px; align-items: center; gap: 8px; min-width: 160px; height: 36px; padding: 0 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text-muted); }
-.search-field:focus-within { border-color: color-mix(in srgb, var(--accent) 70%, var(--border)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent); }
+.search-field:focus-within { border-color: color-mix(in srgb, var(--primary) 70%, var(--border)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 12%, transparent); }
 .search-field input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text); font: inherit; font-size: 12px; }
 .search-field input::placeholder { color: var(--text-muted); opacity: .8; }
 .clear-search { display: grid; flex: none; place-items: center; width: 23px; height: 23px; border: 0; border-radius: 6px; background: transparent; color: var(--text-muted); }
 .clear-search:hover { background: var(--surface-subtle); color: var(--text); }
 .select-control { height: 36px; max-width: 145px; padding: 0 26px 0 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--text); font: inherit; font-size: 11px; }
 .sort-control { max-width: 130px; }
-.filter-button.selected { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); color: var(--accent); }
+.filter-button.selected { border-color: color-mix(in srgb, var(--primary) 50%, var(--border)); background: color-mix(in srgb, var(--primary) 10%, var(--surface)); color: var(--primary); }
 .view-toggle { display: inline-flex; padding: 3px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); }
 .view-button { display: grid; place-items: center; width: 29px; height: 27px; border: 0; border-radius: 6px; background: transparent; color: var(--text-muted); }
 .view-button:hover { color: var(--text); }
-.view-button.active { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); }
+.view-button.active { background: color-mix(in srgb, var(--primary) 15%, transparent); color: var(--primary); }
 .market-tabs { flex: none; gap: 6px; border-bottom: 1px solid var(--border); }
 .market-tab { display: inline-flex; align-items: center; gap: 7px; padding: 8px 10px 9px; margin-bottom: -1px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--text-muted); font-size: 12px; font-weight: 600; }
 .market-tab:hover { color: var(--text); }
-.market-tab.active { border-bottom-color: var(--accent); color: var(--accent); }
+.market-tab.active { border-bottom-color: var(--primary); color: var(--primary); }
 .market-tab span { min-width: 19px; padding: 2px 5px; border-radius: 999px; background: var(--surface-subtle); color: var(--text-muted); font-size: 10px; text-align: center; }
 .market-tab span.count-warn { background: color-mix(in srgb, var(--warning) 16%, transparent); color: var(--warning); }
 .market-content { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 1px 2px 8px 1px; }
@@ -782,7 +782,7 @@ async function removeInstalled(item: InstalledItem) {
 .market-item { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 12px; padding: 12px; border: 1px solid color-mix(in srgb, var(--border) 70%, transparent); border-radius: 12px; background: var(--surface-subtle); }
 .results.grid .market-item { min-height: 154px; flex-direction: column; align-items: stretch; padding: 12px; }
 .item-head { display: flex; flex: 1; align-items: flex-start; gap: 10px; min-width: 0; }
-.product-icon { display: grid; flex: none; place-items: center; width: 40px; height: 40px; border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent); border-radius: 11px; background: color-mix(in srgb, var(--accent) 9%, var(--surface)); color: var(--accent); }
+.product-icon { display: grid; flex: none; place-items: center; width: 40px; height: 40px; border: 1px solid color-mix(in srgb, var(--primary) 18%, transparent); border-radius: 11px; background: color-mix(in srgb, var(--primary) 9%, var(--surface)); color: var(--primary); }
 .item-subtitle { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 3px; color: var(--text-muted); font-size: 10px; }
 .item-id { opacity: .82; }
 .item-desc { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
@@ -791,7 +791,7 @@ async function removeInstalled(item: InstalledItem) {
 .item-badges { margin-top: 2px; }
 .item-permissions { align-items: flex-start; margin-top: 8px; font-size: 10px; }
 .item-permissions strong { margin: 3px 2px 0 0; color: var(--text-muted); font-weight: 600; }
-.chip.verified { border-color: color-mix(in srgb, var(--accent) 30%, transparent); color: var(--accent); }
+.chip.verified { border-color: color-mix(in srgb, var(--primary) 30%, transparent); color: var(--primary); }
 .permission-chip { padding: 3px 7px; border: 1px solid color-mix(in srgb, var(--warning) 34%, transparent); border-radius: 999px; color: color-mix(in srgb, var(--warning) 80%, var(--text)); font-size: 9.5px; }
 .permission-empty { margin-top: 3px; color: var(--text-muted); }
 .item-source { overflow: hidden; margin: 7px 0 0; color: var(--text-muted); font-size: 9.5px; text-overflow: ellipsis; white-space: nowrap; }
@@ -859,7 +859,7 @@ async function removeInstalled(item: InstalledItem) {
 .market-card:focus-visible {
   background: color-mix(
     in srgb,
-    color-mix(in srgb, var(--accent) 4%, var(--surface-subtle))
+    color-mix(in srgb, var(--primary) 4%, var(--surface-subtle))
       calc(var(--component-opacity, 1) * 100%),
     transparent
   );

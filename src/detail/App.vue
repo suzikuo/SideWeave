@@ -310,8 +310,8 @@ onUnmounted(() => {
   width: 26px;
   height: 26px;
   border-radius: 7px;
-  background: color-mix(in srgb, var(--accent) calc(var(--component-opacity, 1) * 18%), transparent);
-  color: var(--accent);
+  background: color-mix(in srgb, var(--primary) calc(var(--component-opacity, 1) * 18%), transparent);
+  color: var(--primary);
   font-size: 10px;
   font-weight: 750;
 }
@@ -356,8 +356,8 @@ onUnmounted(() => {
 
 .control-window-button:hover,
 .control-window-button.pinned {
-  background: color-mix(in srgb, var(--accent) calc(var(--component-opacity, 1) * 14%), transparent);
-  color: var(--accent);
+  background: color-mix(in srgb, var(--primary) calc(var(--component-opacity, 1) * 14%), transparent);
+  color: var(--primary);
 }
 
 .control-close:hover {
@@ -378,8 +378,8 @@ onUnmounted(() => {
 }
 
 .control-return:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--primary);
+  color: var(--primary);
 }
 
 .control-body {

@@ -422,9 +422,9 @@ onUnmounted(() => {
 }
 
 .ring:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 18%, transparent);
+  border-color: var(--primary);
+  color: var(--primary);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 18%, transparent);
   transform: scale(1.06);
 }
 

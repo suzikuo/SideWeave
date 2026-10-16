@@ -154,7 +154,7 @@ const hasMarketMetadata = computed(() => Boolean(props.item.publisher || props.i
 .back-button:hover { background: var(--surface-subtle); color: var(--text); }
 .detail-kicker { color: var(--text-muted); font-size: 11px; font-weight: 600; }
 .detail-scroll { flex: 1; min-height: 0; overflow: auto; padding: 2px 3px 10px; }
-.detail-hero { display: flex; gap: 14px; padding: 18px; border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border)); border-radius: 16px; background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 10%, var(--surface-subtle)), var(--surface-subtle) 65%); }
+.detail-hero { display: flex; gap: 14px; padding: 18px; border: 1px solid color-mix(in srgb, var(--primary) 20%, var(--border)); border-radius: 16px; background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 10%, var(--surface-subtle)), var(--surface-subtle) 65%); }
 .detail-icon { width: 48px; height: 48px; border-radius: 14px; }
 .detail-heading { min-width: 0; flex: 1; }
 .detail-title { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
@@ -170,11 +170,11 @@ const hasMarketMetadata = computed(() => Boolean(props.item.publisher || props.i
 .detail-facts > div { display: grid; grid-template-columns: 76px minmax(0, 1fr); align-items: start; gap: 8px; font-size: 10.5px; }
 .detail-facts dt { color: var(--text-muted); }
 .detail-facts dd { min-width: 0; margin: 0; font-weight: 550; overflow-wrap: anywhere; }
-.repository-link { max-width: 100%; padding: 0; border: 0; background: transparent; color: var(--accent); font: inherit; font-weight: 550; text-align: left; text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; cursor: pointer; }
-.repository-link:hover { color: color-mix(in srgb, var(--accent) 78%, var(--text)); }
-.repository-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+.repository-link { max-width: 100%; padding: 0; border: 0; background: transparent; color: var(--primary); font: inherit; font-weight: 550; text-align: left; text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; cursor: pointer; }
+.repository-link:hover { color: color-mix(in srgb, var(--primary) 78%, var(--text)); }
+.repository-link:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 2px; }
 .permission-list { display: grid; gap: 7px; }
-.permission-detail { display: flex; align-items: center; gap: 7px; min-width: 0; color: var(--accent); font-size: 10.5px; }
+.permission-detail { display: flex; align-items: center; gap: 7px; min-width: 0; color: var(--primary); font-size: 10.5px; }
 .permission-detail span { min-width: 0; overflow: hidden; color: var(--text); text-overflow: ellipsis; white-space: nowrap; }
 .permission-detail code { max-width: 48%; min-width: 0; overflow: hidden; margin-left: auto; color: var(--text-muted); font: 9px ui-monospace, SFMono-Regular, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
 .detail-empty, .native-note { margin: 0; color: var(--text-muted); font-size: 10.5px; line-height: 1.55; }
@@ -185,14 +185,14 @@ const hasMarketMetadata = computed(() => Boolean(props.item.publisher || props.i
 .version-row span:first-child { color: var(--text); font-weight: 600; }
 .version-row span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .detail-actions { display: flex; flex: none; justify-content: flex-end; flex-wrap: wrap; gap: 7px; padding: 11px 3px 2px; border-top: 1px solid var(--border); }
-.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 32px; padding: 0 11px; border: 1px solid var(--border); border-radius: var(--radius, 6px); background: var(--surface); color: var(--text); font: inherit; font-size: 11px; font-weight: 550; cursor: pointer; }
-.btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 32px; padding: 0 12px; border: 1px solid var(--border); border-radius: var(--radius, 6px); background: var(--surface); color: var(--text); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; }
+.btn:hover:not(:disabled) { border-color: var(--border-strong); color: var(--accent-foreground); }
 .btn:disabled { opacity: .55; cursor: default; }
-.btn.accent { border-color: transparent; background: var(--accent); color: #fff; font-weight: 650; }
-.btn.accent:hover:not(:disabled) { filter: brightness(1.08); color: #fff; }
+.btn.accent { border-color: transparent; background: var(--primary); color: var(--primary-foreground); font-weight: 650; }
+.btn.accent:hover:not(:disabled) { filter: brightness(1.08); color: var(--primary-foreground); }
 .btn.update { border-color: color-mix(in srgb, var(--warning) 46%, transparent); background: color-mix(in srgb, var(--warning) 12%, var(--surface)); color: var(--warning); font-weight: 650; }
 .btn.update:hover:not(:disabled) { border-color: var(--warning); background: color-mix(in srgb, var(--warning) 19%, var(--surface)); color: var(--warning); }
-.btn.apply { border-color: transparent; background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+.btn.apply { border-color: transparent; background: color-mix(in srgb, var(--primary) 14%, transparent); color: var(--primary); }
 .btn.danger { color: var(--danger); }
 .btn.danger.confirming { border-color: var(--danger); background: var(--danger); color: #fff; }
 .spin { animation: spin .9s linear infinite; }

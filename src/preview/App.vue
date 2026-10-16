@@ -635,11 +635,11 @@ onUnmounted(() => {
 }
 
 .status-info .status-dot {
-  background: var(--accent);
-  box-shadow: 0 0 6px var(--accent);
+  background: var(--primary);
+  box-shadow: 0 0 6px var(--primary);
 }
 .status-info {
-  color: var(--accent);
+  color: var(--primary);
 }
 
 .preview-progress {
@@ -664,7 +664,7 @@ onUnmounted(() => {
 
 .progress-fill {
   height: 100%;
-  background: var(--accent);
+  background: var(--primary);
   border-radius: 999px;
   transition: width 0.25s ease;
 }
@@ -724,8 +724,8 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: color-mix(in srgb, var(--accent) 15%, transparent);
-  color: var(--accent);
+  background: color-mix(in srgb, var(--primary) 15%, transparent);
+  color: var(--primary);
 }
 
 .item-title {
@@ -877,9 +877,9 @@ onUnmounted(() => {
 }
 
 .action-btn.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #ffffff;
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-foreground);
 }
 
 .action-btn.primary:hover:not(:disabled) {

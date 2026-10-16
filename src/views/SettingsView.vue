@@ -456,30 +456,34 @@ async function openControlCenter() {
 
 /* "更多设置"入口卡片：强调色描边突出这是跳转行为 */
 .more-card {
-  border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
+  border-color: color-mix(in srgb, var(--primary) 28%, var(--border));
 }
 
 .btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 7px 14px;
+  padding: 0 12px;
   border-radius: var(--radius, 6px);
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text);
-  font-size: 12.5px;
+  font-size: 13px;
   white-space: nowrap;
 }
 .btn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--border-strong);
+  color: var(--accent-foreground);
 }
 .btn.accent {
   border-color: transparent;
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  color: var(--accent);
+  background: var(--primary);
+  color: var(--primary-foreground);
   font-weight: 600;
+}
+.btn.accent:hover:not(:disabled) {
+  filter: brightness(1.08);
+  color: var(--primary-foreground);
 }
 
 /* switch 样式（与控制中心一致） */
@@ -506,7 +510,7 @@ async function openControlCenter() {
   transition: transform 0.2s ease;
 }
 .switch:checked {
-  background: var(--accent);
+  background: var(--primary);
 }
 .switch:checked::after {
   transform: translateX(18px);

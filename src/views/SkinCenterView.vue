@@ -441,7 +441,7 @@ async function removeInstalled(item: InstalledItem) {
   gap: 10px;
 }
 .market-card { cursor: pointer; transition: transform .16s ease, border-color .16s ease, background .16s ease; }
-.market-card:hover, .market-card:focus-visible { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); background: color-mix(in srgb, var(--accent) 4%, var(--surface-subtle)); transform: translateY(-1px); outline: none; }
+.market-card:hover, .market-card:focus-visible { border-color: color-mix(in srgb, var(--primary) 55%, var(--border)); background: color-mix(in srgb, var(--primary) 4%, var(--surface-subtle)); transform: translateY(-1px); outline: none; }
 .market-card .item-id { display: none; }
 .results.discover .item-details { display: none; }
 .results.installed .item-actions, .results.updates .item-actions { display: none; }
@@ -480,8 +480,8 @@ async function removeInstalled(item: InstalledItem) {
 }
 .chip.accent {
   border-color: transparent;
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  color: var(--accent);
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+  color: var(--primary);
 }
 .chip.warn {
   border-color: transparent;
@@ -495,17 +495,17 @@ async function removeInstalled(item: InstalledItem) {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 7px 14px;
-  border-radius: 10px;
+  padding: 0 12px;
+  border-radius: 6px;
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text);
-  font-size: 12.5px;
+  font-size: 13px;
   white-space: nowrap;
 }
 .btn:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--border-strong);
+  color: var(--accent-foreground);
 }
 .btn:disabled {
   opacity: 0.55;
@@ -513,13 +513,13 @@ async function removeInstalled(item: InstalledItem) {
 }
 .btn.accent {
   border-color: transparent;
-  background: var(--accent);
-  color: #fff;
+  background: var(--primary);
+  color: var(--primary-foreground);
   font-weight: 600;
 }
 .btn.accent:hover:not(:disabled) {
   filter: brightness(1.1);
-  color: #fff;
+  color: var(--primary-foreground);
 }
 .btn.update {
   border-color: color-mix(in srgb, var(--warning) 46%, transparent);
@@ -534,13 +534,13 @@ async function removeInstalled(item: InstalledItem) {
 }
 .btn.apply {
   border-color: transparent;
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  color: var(--accent);
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+  color: var(--primary);
   font-weight: 600;
 }
 .btn.apply:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--primary);
+  color: var(--primary);
 }
 .btn.danger {
   color: var(--danger);
@@ -599,7 +599,7 @@ async function removeInstalled(item: InstalledItem) {
   font-size: 13px;
 }
 
-.installed-badge { display: inline-flex; align-items: center; padding: 3px 7px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); font-size: 10px; font-weight: 650; white-space: nowrap; }
+.installed-badge { display: inline-flex; align-items: center; padding: 3px 7px; border-radius: 999px; background: color-mix(in srgb, var(--primary) 14%, transparent); color: var(--primary); font-size: 10px; font-weight: 650; white-space: nowrap; }
 
 .item-author {
   font-size: 11px;
@@ -616,8 +616,8 @@ async function removeInstalled(item: InstalledItem) {
 .ver-badge {
   padding: 1.5px 8px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--accent) 13%, transparent);
-  color: var(--accent);
+  background: color-mix(in srgb, var(--primary) 13%, transparent);
+  color: var(--primary);
   font-size: 10px;
   font-weight: 600;
   white-space: nowrap;
@@ -682,14 +682,14 @@ async function removeInstalled(item: InstalledItem) {
 .market-summary, .heading-actions, .control-actions { gap: 7px; flex-wrap: wrap; }
 .market-summary { min-width: 0; }
 .chip { display: inline-flex; align-items: center; padding: 4px 9px; border: 1px solid color-mix(in srgb, var(--border) 70%, transparent); border-radius: 999px; background: var(--surface-subtle); color: var(--text-muted); font-size: 10.5px; font-weight: 600; white-space: nowrap; }
-.chip.accent { border-color: transparent; background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+.chip.accent { border-color: transparent; background: color-mix(in srgb, var(--primary) 14%, transparent); color: var(--primary); }
 .chip.warn { border-color: transparent; background: color-mix(in srgb, var(--warning) 16%, transparent); color: var(--warning); }
-.chip.verified { border-color: color-mix(in srgb, var(--accent) 30%, transparent); color: var(--accent); }
+.chip.verified { border-color: color-mix(in srgb, var(--primary) 30%, transparent); color: var(--primary); }
 .updated-time { font-weight: 500; }
 .heading-actions { flex: none; }
 .market-controls { flex: none; gap: 9px; }
 .search-field { display: flex; flex: 1 1 220px; align-items: center; gap: 8px; min-width: 160px; height: 36px; padding: 0 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text-muted); }
-.search-field:focus-within { border-color: color-mix(in srgb, var(--accent) 70%, var(--border)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent); }
+.search-field:focus-within { border-color: color-mix(in srgb, var(--primary) 70%, var(--border)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 12%, transparent); }
 .search-field input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text); font: inherit; font-size: 12px; }
 .search-field input::placeholder { color: var(--text-muted); opacity: .8; }
 .clear-search { display: grid; flex: none; place-items: center; width: 23px; height: 23px; border: 0; border-radius: 6px; background: transparent; color: var(--text-muted); }
@@ -700,11 +700,11 @@ async function removeInstalled(item: InstalledItem) {
 .view-toggle { display: inline-flex; padding: 3px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); }
 .view-button { display: grid; place-items: center; width: 29px; height: 27px; border: 0; border-radius: 6px; background: transparent; color: var(--text-muted); }
 .view-button:hover { color: var(--text); }
-.view-button.active { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); }
+.view-button.active { background: color-mix(in srgb, var(--primary) 15%, transparent); color: var(--primary); }
 .market-tabs { flex: none; gap: 6px; border-bottom: 1px solid var(--border); }
 .market-tab { display: inline-flex; align-items: center; gap: 7px; padding: 8px 10px 9px; margin-bottom: -1px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--text-muted); font-size: 12px; font-weight: 600; }
 .market-tab:hover { color: var(--text); }
-.market-tab.active { border-bottom-color: var(--accent); color: var(--accent); }
+.market-tab.active { border-bottom-color: var(--primary); color: var(--primary); }
 .market-tab span { min-width: 19px; padding: 2px 5px; border-radius: 999px; background: var(--surface-subtle); color: var(--text-muted); font-size: 10px; text-align: center; }
 .market-tab span.count-warn { background: color-mix(in srgb, var(--warning) 16%, transparent); color: var(--warning); }
 .market-content { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 1px 2px 8px 1px; }
@@ -718,7 +718,7 @@ async function removeInstalled(item: InstalledItem) {
 .market-item { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 12px; padding: 12px; border: 1px solid color-mix(in srgb, var(--border) 70%, transparent); border-radius: 12px; background: var(--surface-subtle); }
 .results.grid .market-item { min-height: 154px; flex-direction: column; align-items: stretch; padding: 12px; }
 .item-head { display: flex; flex: 1; align-items: flex-start; gap: 10px; min-width: 0; }
-.product-icon { display: grid; flex: none; place-items: center; width: 40px; height: 40px; border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent); border-radius: 11px; background: color-mix(in srgb, var(--accent) 9%, var(--surface)); color: var(--accent); }
+.product-icon { display: grid; flex: none; place-items: center; width: 40px; height: 40px; border: 1px solid color-mix(in srgb, var(--primary) 18%, transparent); border-radius: 11px; background: color-mix(in srgb, var(--primary) 9%, var(--surface)); color: var(--primary); }
 .item-main { min-width: 0; flex: 1; }
 .item-title { gap: 7px; flex-wrap: wrap; font-size: 13px; }
 .item-title strong { overflow-wrap: anywhere; }
@@ -728,11 +728,11 @@ async function removeInstalled(item: InstalledItem) {
 .item-details { min-width: 0; }
 .item-badges { flex-wrap: wrap; gap: 5px; margin-top: 2px; }
 .item-source { overflow: hidden; margin: 7px 0 0; color: var(--text-muted); font-size: 9.5px; text-overflow: ellipsis; white-space: nowrap; }
-.ver-badge { padding: 2px 7px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 13%, transparent); color: var(--accent); font-size: 9.5px; font-weight: 650; white-space: nowrap; }
+.ver-badge { padding: 2px 7px; border-radius: 999px; background: color-mix(in srgb, var(--primary) 13%, transparent); color: var(--primary); font-size: 9.5px; font-weight: 650; white-space: nowrap; }
 .item-actions { flex: none; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }
 .results.grid .item-actions { margin-top: auto; }
-.btn.apply { border-color: transparent; background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); font-weight: 600; }
-.btn.apply:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.btn.apply { border-color: transparent; background: color-mix(in srgb, var(--primary) 14%, transparent); color: var(--primary); font-weight: 600; }
+.btn.apply:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); }
 .empty-state, .state { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; text-align: center; color: var(--text-muted); }
 .empty-state { min-height: 180px; margin-top: 6px; padding: 18px; border: 1px dashed color-mix(in srgb, var(--border) 70%, transparent); border-radius: 12px; }
 .empty-icon { display: grid; place-items: center; width: 42px; height: 42px; margin-bottom: 3px; border-radius: 13px; background: var(--surface-subtle); color: var(--text-muted); }

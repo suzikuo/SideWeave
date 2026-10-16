@@ -15,7 +15,7 @@
   --font-ui: Inter, 'Segoe UI Variable', 'Segoe UI', 'Microsoft YaHei UI', system-ui, sans-serif;
 }
 [data-skin='default'] {
-  --notification-info: var(--accent);
+  --notification-info: var(--primary);
   --notification-success: var(--success);
   --notification-warning: var(--warning);
   --notification-alarm: var(--danger);
@@ -26,7 +26,7 @@
   --notification-desktop-shadow: 0 1px 2px rgb(0 0 0 / 22%), 0 8px 24px rgb(0 0 0 / 18%);
   --notification-desktop-radius: 10px;
   --notification-desktop-backdrop-filter: blur(16px) saturate(135%);
-  --notification-bubble-info: var(--accent);
+  --notification-bubble-info: var(--primary);
   --notification-bubble-success: var(--success);
   --notification-bubble-warning: var(--warning);
   --notification-bubble-alarm: var(--danger);
@@ -39,7 +39,7 @@
   --notification-bubble-radius: 14px;
 }
 :root[data-skin^='user-'] {
-  --notification-info: var(--accent);
+  --notification-info: var(--primary);
   --notification-success: var(--success);
   --notification-warning: var(--warning);
   --notification-alarm: var(--danger);
@@ -49,7 +49,7 @@
   --notification-desktop-border-base: var(--border);
   --notification-desktop-shadow: var(--shadow);
   --notification-desktop-radius: var(--radius-lg);
-  --notification-bubble-info: var(--accent);
+  --notification-bubble-info: var(--primary);
   --notification-bubble-success: var(--success);
   --notification-bubble-warning: var(--warning);
   --notification-bubble-alarm: var(--danger);

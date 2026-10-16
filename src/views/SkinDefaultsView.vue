@@ -360,7 +360,7 @@ const fmtPx = (value: number) => `${value} px`
 }
 
 .skin-picker select:focus-visible {
-  border-color: var(--accent);
+  border-color: var(--primary);
 }
 
 .defaults-group {

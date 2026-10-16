@@ -1794,8 +1794,8 @@ onUnmounted(() => {
   height: 28px;
   flex: none;
   border-radius: 8px;
-  background: var(--accent);
-  color: #fff;
+  background: var(--primary);
+  color: var(--primary-foreground);
   font-size: 11px;
   font-weight: 700;
 }
@@ -1846,12 +1846,12 @@ onUnmounted(() => {
   color: var(--text);
 }
 .nav-item.active {
-  background: color-mix(in srgb, var(--accent) 10%, var(--surface-subtle));
+  background: color-mix(in srgb, var(--primary) 10%, var(--surface-subtle));
   color: var(--text);
   font-weight: 600;
 }
 .nav-item.active svg {
-  color: var(--accent);
+  color: var(--primary);
 }
 
 .nav-foot {
@@ -1967,11 +1967,11 @@ kbd {
   align-items: center;
   gap: 12px;
   padding: 14px 16px;
-  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border));
   border-radius: 14px;
   background: linear-gradient(
     135deg,
-    color-mix(in srgb, var(--accent) 10%, var(--surface-subtle)),
+    color-mix(in srgb, var(--primary) 10%, var(--surface-subtle)),
     var(--surface-subtle)
   );
   margin-bottom: 4px;
@@ -2010,8 +2010,8 @@ kbd {
 }
 .badge.accent {
   border-color: transparent;
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  color: var(--accent);
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+  color: var(--primary);
 }
 
 .stat-grid {
@@ -2058,7 +2058,7 @@ kbd {
   transition: border-color 0.15s ease;
 }
 .plugin-stat:hover {
-  border-color: var(--accent);
+  border-color: var(--primary);
 }
 .bar {
   width: 100%;
@@ -2072,7 +2072,7 @@ kbd {
   display: block;
   height: 100%;
   border-radius: 999px;
-  background: var(--accent);
+  background: var(--primary);
   transition: width 0.3s ease;
 }
 
@@ -2100,8 +2100,8 @@ kbd {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--accent) 20%, transparent);
-  color: var(--accent);
+  background: color-mix(in srgb, var(--primary) 20%, transparent);
+  color: var(--primary);
   font-size: 9.5px;
   font-weight: 700;
 }
@@ -2137,11 +2137,11 @@ kbd {
   transition: color 0.15s ease;
 }
 .quick-btn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--primary);
+  color: var(--primary);
 }
 .quick-btn:hover svg {
-  color: var(--accent);
+  color: var(--primary);
 }
 
 /* ---------- 插件：排序序号 + 版本徽标 ---------- */
@@ -2170,8 +2170,8 @@ kbd {
 }
 .plugin-permission-button:hover,
 .plugin-permission-button[aria-expanded='true'] {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--primary);
+  color: var(--primary);
 }
 .plugin-permissions {
   padding: 4px 16px 10px;
@@ -2220,8 +2220,8 @@ kbd {
   margin-left: 7px;
   padding: 1.5px 8px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--accent) 13%, transparent);
-  color: var(--accent);
+  background: color-mix(in srgb, var(--primary) 13%, transparent);
+  color: var(--primary);
   font-size: 10px;
   font-weight: 600;
   vertical-align: 1px;
@@ -2253,10 +2253,11 @@ kbd {
   transition: transform 0.2s ease;
 }
 .switch:checked {
-  background: var(--accent);
+  background: var(--primary);
 }
 .switch:checked::after {
   transform: translateX(18px);
+  background: var(--primary-foreground);
 }
 
 .segmented {
@@ -2334,17 +2335,17 @@ kbd {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 7px 14px;
+  padding: 0 12px;
   border-radius: var(--radius, 6px);
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text);
-  font-size: 12.5px;
+  font-size: 13px;
   white-space: nowrap;
 }
 .btn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--border-strong);
+  color: var(--accent-foreground);
 }
 
 .icon-btn {
@@ -2428,13 +2429,13 @@ section.fill h2 {
   height: 6px;
   flex: none;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--accent) 16%, var(--surface));
+  background: color-mix(in srgb, var(--primary) 16%, var(--surface));
 }
 .update-progress-track span {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: var(--accent);
+  background: var(--primary);
   transition: width 120ms linear;
 }
 .update-progress-track span.indeterminate {
@@ -2462,8 +2463,8 @@ section.fill h2 {
   font-size: 12px;
 }
 .opacity-reset-button:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--primary);
+  color: var(--primary);
 }
 .opacity-reset-button:disabled {
   cursor: wait;
@@ -2707,6 +2708,7 @@ section.fill h2 {
 }
 .control-layout .btn.accent {
   background: color-mix(in srgb, var(--primary) calc(var(--component-opacity, 1) * 100%), transparent);
+  color: var(--primary-foreground);
 }
 .control-layout .btn.update {
   background: color-mix(
@@ -2720,7 +2722,7 @@ section.fill h2 {
   background: color-mix(in srgb, var(--destructive) calc(var(--component-opacity, 1) * 100%), transparent);
 }
 .control-layout .btn:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent) calc(var(--component-opacity, 1) * 8%), transparent);
+  background: color-mix(in srgb, var(--primary) calc(var(--component-opacity, 1) * 8%), transparent);
 }
 .control-layout .btn.accent:hover:not(:disabled) {
   background: color-mix(in srgb, var(--primary) calc(var(--component-opacity, 1) * 92%), transparent);
@@ -2744,7 +2746,7 @@ section.fill h2 {
   background: color-mix(in srgb, var(--input) calc(var(--component-opacity, 1) * 100%), transparent);
 }
 .control-layout .switch:checked {
-  background: color-mix(in srgb, var(--accent) calc(var(--component-opacity, 1) * 100%), transparent);
+  background: color-mix(in srgb, var(--primary) calc(var(--component-opacity, 1) * 100%), transparent);
 }
 .control-layout :deep(button[role='switch']) {
   background-color: color-mix(in srgb, var(--input) calc(var(--component-opacity, 1) * 100%), transparent);

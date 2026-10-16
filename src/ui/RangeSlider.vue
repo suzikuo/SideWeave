@@ -85,7 +85,7 @@ function onChange() {
 
 .rslider input[type='range'] {
   width: 180px;
-  accent-color: var(--accent);
+  accent-color: var(--primary);
   cursor: pointer;
 }
 

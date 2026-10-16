@@ -262,7 +262,7 @@ async function restoreDefaults() {
 .select-input:focus-visible,
 .text-input:focus-visible,
 .number-input:focus-visible {
-  border-color: var(--accent);
+  border-color: var(--primary);
 }
 
 .field-list {

@@ -255,8 +255,8 @@ const emptyHint = computed(() => '点击屏幕边缘的圆环即可打开对应�
   height: 24px;
   flex: none;
   border-radius: 7px;
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
-  color: var(--accent);
+  background: color-mix(in srgb, var(--primary) 16%, transparent);
+  color: var(--primary);
 }
 
 .plugin-name {
@@ -316,8 +316,8 @@ const emptyHint = computed(() => '点击屏幕边缘的圆环即可打开对应�
 }
 .pin:hover,
 .pin.pinned {
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  color: var(--accent);
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+  color: var(--primary);
 }
 .close:hover {
   background: var(--surface-subtle);
