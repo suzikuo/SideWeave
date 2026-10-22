@@ -131,6 +131,7 @@ export interface RuntimePluginManifest {
   backend: string | null
   trust: PluginTrust
   capabilities: string[]
+  requiredCapabilities?: string[]
   ui: PluginUi | null
   minimumHostVersion: string | null
 }

@@ -35,6 +35,7 @@ pub struct PreviewCoordinator {
     is_showing: AtomicBool,
     in_preview: AtomicBool,
     hover_target: Mutex<Option<(String, ButtonRect)>>,
+    last_anchor: Mutex<Option<ButtonRect>>,
     current_payload: Mutex<Option<Value>>,
 }
 
@@ -46,6 +47,7 @@ impl Default for PreviewCoordinator {
             is_showing: AtomicBool::new(false),
             in_preview: AtomicBool::new(false),
             hover_target: Mutex::new(None),
+            last_anchor: Mutex::new(None),
             current_payload: Mutex::new(None),
         }
     }
@@ -62,8 +64,10 @@ pub fn calculate_preview_geometry(
     card_logical_h: u32,
     work_area: &crate::platform::WorkArea,
 ) -> (PhysicalPosition<i32>, PhysicalSize<u32>) {
-    let card_w_phys = (card_logical_w as f64 * scale).round() as i32;
-    let card_h_phys = (card_logical_h as f64 * scale).round() as i32;
+    let max_card_w_phys = (work_area.w - 8).max(1);
+    let max_card_h_phys = (work_area.h - 8).max(1);
+    let card_w_phys = ((card_logical_w as f64 * scale).round() as i32).clamp(1, max_card_w_phys);
+    let card_h_phys = ((card_logical_h as f64 * scale).round() as i32).clamp(1, max_card_h_phys);
     let gap_phys = (CARD_GAP * scale).round() as i32;
 
     let btn_phys_x = sidebar_pos.x + (btn_rect.x * scale).round() as i32;
@@ -143,7 +147,11 @@ fn fallback_payload(plugin_id: &str, manifest: &sideweave_plugin_api::PluginMani
     })
 }
 
-fn estimate_declarative_card_height(payload: &Value, max_height: u32) -> u32 {
+fn estimate_declarative_card_height(
+    payload: &Value,
+    max_visible_rows: u32,
+    display_mode: &str,
+) -> u32 {
     // Keep these dimensions aligned with the compact preview styles in preview/App.vue.
     let mut content_height = 0_u32;
     let mut content_sections = 0_u32;
@@ -165,15 +173,15 @@ fn estimate_declarative_card_height(payload: &Value, max_height: u32) -> u32 {
         if items.is_empty() {
             content_height += 96; // empty state min-height
         } else {
-            let rows = items.len().min(20) as u32;
+            let rows = (items.len() as u32).min(max_visible_rows);
             let list_height = rows * 36 + rows.saturating_sub(1) + 10;
-            content_height += list_height.min(120); // compact list max-height
+            content_height += list_height;
         }
         content_sections += 1;
     } else if let Some(metrics) = payload
         .get("metrics")
         .and_then(Value::as_array)
-        .filter(|items| !items.is_empty())
+        .filter(|items| display_mode != "compact" && !items.is_empty())
     {
         let rows = ((metrics.len() + 1) / 2).min(10) as u32;
         content_height += rows * 48 + rows.saturating_sub(1) * 6 + 12;
@@ -197,24 +205,87 @@ fn estimate_declarative_card_height(payload: &Value, max_height: u32) -> u32 {
                 .count()
         })
         .unwrap_or(0);
-    // The content column has 16px vertical padding and 7px gaps. The fixed
-    // header/divider use 47px; card border and transparent window inset use 16px.
-    let estimated = 47
+    let status_text = if display_mode == "compact" {
+        payload.get("stateText")
+    } else {
+        payload.get("statusText").or_else(|| payload.get("stateText"))
+    };
+    let has_status = status_text
+        .and_then(Value::as_str)
+        .is_some_and(|text| !text.is_empty());
+    let fixed_header_height = if display_mode == "compact" {
+        if has_status { 27 } else { 0 }
+    } else {
+        47
+    };
+    // The content column has 16px vertical padding. The default header/divider
+    // use 47px; compact mode keeps only a small status row when present.
+    let estimated = fixed_header_height
         + 16
         + content_height
         + content_sections.saturating_sub(1) * 7
         + if action_count > 0 { 41 } else { 0 }
         + 16;
-    estimated.clamp(72.min(max_height), max_height.max(1))
+    estimated.max(72)
+}
+
+fn preview_has_content(payload: &Value, display_mode: &str) -> bool {
+    if payload.get("mode").and_then(Value::as_str) == Some("custom") {
+        return payload
+            .get("customUrl")
+            .and_then(Value::as_str)
+            .is_some_and(|url| !url.is_empty());
+    }
+
+    let items = payload.get("items").and_then(Value::as_array);
+    let has_items = items.is_some_and(|items| !items.is_empty());
+    let has_metrics = display_mode != "compact"
+        && items.is_none()
+        && payload
+            .get("metrics")
+            .and_then(Value::as_array)
+            .is_some_and(|metrics| !metrics.is_empty());
+    let has_progress = payload
+        .get("progress")
+        .is_some_and(Value::is_object);
+    let has_actions = payload
+        .get("actions")
+        .and_then(Value::as_array)
+        .is_some_and(|actions| {
+            actions.iter().any(|action| {
+                action
+                    .get("method")
+                    .and_then(Value::as_str)
+                    .is_some_and(|method| !method.is_empty())
+            })
+        });
+    let status_text = if display_mode == "compact" {
+        payload.get("stateText")
+    } else {
+        payload
+            .get("statusText")
+            .filter(|value| !value.is_null())
+            .or_else(|| payload.get("stateText"))
+    };
+    let has_status = status_text
+        .and_then(Value::as_str)
+        .is_some_and(|text| !text.is_empty());
+
+    has_items || has_metrics || has_progress || has_actions || has_status
 }
 
 fn fetch_preview_payload(app: &AppHandle, plugin_id: &str) -> Option<(Value, u32, u32)> {
     let manifest = crate::plugin_manifest(app, plugin_id)?;
     let hover_config = manifest.hover_preview.as_ref()?;
-    let card_w = hover_config.width.unwrap_or(DEFAULT_CARD_WIDTH);
-    let max_card_h = hover_config.height.unwrap_or(DEFAULT_CARD_HEIGHT);
+    let settings = crate::host_settings(app);
+    let max_visible_rows = settings.appearance.preview_visible_rows.clamp(1, 8);
+    let display_mode = if settings.appearance.preview_display_mode == "compact" {
+        "compact"
+    } else {
+        "default"
+    };
 
-    let payload = if let Some(ref entry) = hover_config.entry {
+    let mut payload = if let Some(ref entry) = hover_config.entry {
         let clean_entry = entry.trim_matches(|c| c == '/' || c == '\\').trim();
         if clean_entry.is_empty()
             || clean_entry.contains("..")
@@ -251,6 +322,13 @@ fn fetch_preview_payload(app: &AppHandle, plugin_id: &str) -> Option<(Value, u32
         match crate::plugin_call_blocking(app, request) {
             Ok(response) if response.ok => {
                 let mut val = response.result;
+                if !val.is_object() {
+                    val = serde_json::json!({
+                        "mode": "declarative",
+                        "pluginId": plugin_id,
+                        "title": manifest.name.clone()
+                    });
+                }
                 if let Some(obj) = val.as_object_mut() {
                     obj.insert("mode".into(), Value::String("declarative".into()));
                     obj.insert("pluginId".into(), Value::String(plugin_id.to_string()));
@@ -266,11 +344,44 @@ fn fetch_preview_payload(app: &AppHandle, plugin_id: &str) -> Option<(Value, u32
         fallback_payload(plugin_id, &manifest)
     };
 
-    let card_h = if payload.get("mode").and_then(Value::as_str) == Some("custom") {
-        max_card_h
+    let is_custom = payload.get("mode").and_then(Value::as_str) == Some("custom");
+    let card_w = if is_custom {
+        hover_config.width.unwrap_or(DEFAULT_CARD_WIDTH)
     } else {
-        estimate_declarative_card_height(&payload, max_card_h)
+        settings
+            .appearance
+            .preview_width
+            .or(hover_config.width)
+            .unwrap_or(DEFAULT_CARD_WIDTH)
     };
+    let visible_rows = if is_custom {
+        0
+    } else {
+        payload
+            .get("items")
+            .and_then(Value::as_array)
+            .map(|items| (items.len() as u32).min(max_visible_rows))
+            .unwrap_or(0)
+    };
+    let card_h = if is_custom {
+        hover_config.height.unwrap_or(DEFAULT_CARD_HEIGHT)
+    } else {
+        estimate_declarative_card_height(&payload, max_visible_rows, display_mode)
+    };
+
+    if let Some(object) = payload.as_object_mut() {
+        object.insert(
+            "hostLayout".into(),
+            serde_json::json!({
+                "mode": if is_custom { "custom" } else { "host" },
+                "displayMode": display_mode,
+                "width": card_w,
+                "height": card_h,
+                "visibleRows": visible_rows,
+                "maxVisibleRows": if is_custom { 0 } else { max_visible_rows }
+            }),
+        );
+    }
 
     Some((payload, card_w, card_h))
 }
@@ -282,13 +393,7 @@ impl PreviewCoordinator {
         rect: ButtonRect,
         payload_data: (Value, u32, u32),
     ) {
-        let (payload, card_w, card_h) = payload_data;
-        // 写入当前快照以供初次挂载主动读取
-        *self.current_payload.lock().unwrap() = Some(payload.clone());
-
-        // 广播给已挂载的预览卡片前端
-        let _ = app.emit_to(PREVIEW_WINDOW, "preview://update", &payload);
-
+        let (mut payload, card_w, card_h) = payload_data;
         let Some(sidebar) = app.get_webview_window(crate::SIDEBAR) else {
             return;
         };
@@ -313,6 +418,33 @@ impl PreviewCoordinator {
             &work_area,
         );
 
+        let logical_width = (target_size.width as f64 / scale).round().max(1.0) as u32;
+        let logical_height = (target_size.height as f64 / scale).round().max(1.0) as u32;
+        if let Some(layout) = payload
+            .get_mut("hostLayout")
+            .and_then(Value::as_object_mut)
+        {
+            layout.insert("width".into(), Value::from(logical_width));
+            layout.insert("height".into(), Value::from(logical_height));
+            if layout.get("mode").and_then(Value::as_str) == Some("host") {
+                let rows = layout
+                    .get("visibleRows")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0) as u32;
+                if rows > 0 {
+                    let desired_list_height = rows * 36 + rows.saturating_sub(1) + 10;
+                    let fixed_height = card_h.saturating_sub(desired_list_height);
+                    let available_list_height = logical_height.saturating_sub(fixed_height);
+                    let rows_that_fit = (available_list_height.saturating_sub(9) / 37).max(1);
+                    layout.insert("visibleRows".into(), Value::from(rows.min(rows_that_fit)));
+                }
+            }
+        }
+
+        // Store and broadcast the final, work-area-clamped layout so skins can adapt to it.
+        *self.current_payload.lock().unwrap() = Some(payload.clone());
+        let _ = app.emit_to(PREVIEW_WINDOW, "preview://update", &payload);
+
         let Ok(win) = ensure_preview_window(app) else {
             return;
         };
@@ -330,6 +462,7 @@ impl PreviewCoordinator {
         }
 
         self.is_showing.store(true, Ordering::SeqCst);
+        *self.last_anchor.lock().unwrap() = Some(rect);
         let _ = app.emit_to(crate::SIDEBAR, "preview://opened", ());
     }
 
@@ -337,6 +470,7 @@ impl PreviewCoordinator {
         if let Some(win) = app.get_webview_window(PREVIEW_WINDOW) {
             let _ = win.hide();
         }
+        *self.last_anchor.lock().unwrap() = None;
         self.is_showing.store(false, Ordering::SeqCst);
         self.in_preview.store(false, Ordering::SeqCst);
         check_sidebar_collapse_after_preview(app);
@@ -390,8 +524,25 @@ impl PreviewCoordinator {
                                 .as_ref()
                                 .is_some_and(|(id, _)| id == &target_id);
                         if still_current {
-                            if let Some(payload_data) = fetched {
-                                coord.show_preview_impl(&app_clone, target_rect, payload_data);
+                            match fetched {
+                                Some((payload, card_width, card_height)) => {
+                                    let display_mode = payload
+                                        .get("hostLayout")
+                                        .and_then(|layout| layout.get("displayMode"))
+                                        .and_then(Value::as_str)
+                                        .unwrap_or("default");
+                                    if preview_has_content(&payload, display_mode) {
+                                        coord.show_preview_impl(
+                                            &app_clone,
+                                            target_rect,
+                                            (payload, card_width, card_height),
+                                        );
+                                    } else {
+                                        *coord.current_payload.lock().unwrap() = Some(payload);
+                                        coord.hide_preview_impl(&app_clone);
+                                    }
+                                }
+                                None => coord.hide_now(&app_clone),
                             }
                         }
                     }
@@ -467,10 +618,127 @@ impl PreviewCoordinator {
                 .as_ref()
                 .and_then(|p| p.get("pluginId").and_then(Value::as_str).map(String::from))
         }?;
-        let (new_payload, _, _) = fetch_preview_payload(app, &current_id)?;
+        let Some((new_payload, card_width, card_height)) =
+            fetch_preview_payload(app, &current_id)
+        else {
+            *self.current_payload.lock().unwrap() = None;
+            self.hide_now(app);
+            return None;
+        };
+        let display_mode = new_payload
+            .get("hostLayout")
+            .and_then(|layout| layout.get("displayMode"))
+            .and_then(Value::as_str)
+            .unwrap_or("default");
         *self.current_payload.lock().unwrap() = Some(new_payload.clone());
+        if !preview_has_content(&new_payload, display_mode) {
+            self.hide_preview_impl(app);
+            return Some(new_payload);
+        }
+        if !self.is_showing.load(Ordering::SeqCst) {
+            let hover_target = self.hover_target.lock().unwrap().clone();
+            if let Some((target_id, target_rect)) = hover_target {
+                if target_id == current_id {
+                    self.show_preview_impl(
+                        app,
+                        target_rect,
+                        (new_payload.clone(), card_width, card_height),
+                    );
+                    return Some(new_payload);
+                }
+            }
+        }
         let _ = app.emit_to(PREVIEW_WINDOW, "preview://update", &new_payload);
         Some(new_payload)
+    }
+
+    pub fn update_display_mode(&self, app: &AppHandle) {
+        let Some(mut payload) = self.current_payload.lock().unwrap().clone() else {
+            return;
+        };
+        let settings = crate::host_settings(app);
+        let display_mode = if settings.appearance.preview_display_mode == "compact" {
+            "compact"
+        } else {
+            "default"
+        };
+        let payload_is_custom = payload.get("mode").and_then(Value::as_str) == Some("custom");
+
+        let (is_custom, max_visible_rows, card_width) = {
+            let Some(layout) = payload
+                .get_mut("hostLayout")
+                .and_then(Value::as_object_mut)
+            else {
+                return;
+            };
+            let is_custom = layout.get("mode").and_then(Value::as_str) == Some("custom")
+                || payload_is_custom;
+            layout.insert("displayMode".into(), Value::String(display_mode.to_string()));
+            let max_visible_rows = layout
+                .get("maxVisibleRows")
+                .and_then(Value::as_u64)
+                .map(|rows| rows as u32)
+                .filter(|rows| *rows > 0)
+                .unwrap_or_else(|| settings.appearance.preview_visible_rows.clamp(1, 8));
+            let card_width = layout
+                .get("width")
+                .and_then(Value::as_u64)
+                .map(|width| width as u32)
+                .unwrap_or(DEFAULT_CARD_WIDTH);
+            (is_custom, max_visible_rows, card_width)
+        };
+
+        if is_custom {
+            *self.current_payload.lock().unwrap() = Some(payload.clone());
+            let _ = app.emit_to(PREVIEW_WINDOW, "preview://update", &payload);
+            return;
+        }
+
+        let visible_rows = payload
+            .get("items")
+            .and_then(Value::as_array)
+            .map(|items| (items.len() as u32).min(max_visible_rows))
+            .unwrap_or(0);
+        if let Some(layout) = payload
+            .get_mut("hostLayout")
+            .and_then(Value::as_object_mut)
+        {
+            layout.insert("visibleRows".into(), Value::from(visible_rows));
+        }
+        let card_height = estimate_declarative_card_height(
+            &payload,
+            max_visible_rows,
+            display_mode,
+        );
+        if let Some(layout) = payload
+            .get_mut("hostLayout")
+            .and_then(Value::as_object_mut)
+        {
+            layout.insert("height".into(), Value::from(card_height));
+        }
+
+        if !preview_has_content(&payload, display_mode) {
+            *self.current_payload.lock().unwrap() = Some(payload);
+            self.hide_preview_impl(app);
+            return;
+        }
+
+        let anchor = self.last_anchor.lock().unwrap().as_ref().copied();
+        if self.is_showing.load(Ordering::SeqCst) {
+            if let Some(anchor) = anchor {
+                self.show_preview_impl(app, anchor, (payload, card_width, card_height));
+                return;
+            }
+        }
+        let hovered_target = self.hover_target.lock().unwrap().clone();
+        if let Some((plugin_id, rect)) = hovered_target {
+            if payload.get("pluginId").and_then(Value::as_str) == Some(plugin_id.as_str()) {
+                self.show_preview_impl(app, rect, (payload, card_width, card_height));
+                return;
+            }
+        }
+        *self.current_payload.lock().unwrap() = Some(payload.clone());
+        let _ = app.emit_to(PREVIEW_WINDOW, "preview://update", &payload);
     }
 
     #[allow(dead_code)]

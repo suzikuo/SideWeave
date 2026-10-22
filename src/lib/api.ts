@@ -1,10 +1,11 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { PluginMeta, Settings, StateSnapshot } from './types'
+import type { MonitorOption, PluginMeta, PreviewDisplayMode, Settings, StateSnapshot } from './types'
 import type { SkinAppearanceDefaults } from './marketApi'
 
 /** 宿主状态 */
 export const getState = () => invoke<StateSnapshot>('get_state')
 export const appReady = () => invoke<void>('app_ready')
+export const getMonitorOptions = () => invoke<MonitorOption[]>('get_monitor_options')
 
 /** 修改单个设置项（Rust 侧校验并应用副作用），返回最新 settings */
 export const setSetting = (category: string, key: string, value: unknown) =>
@@ -54,6 +55,7 @@ export const EVENTS = {
   sidebarExpanded: 'sidebar://expanded',
   mainSurface: 'main://surface',
   previewUpdate: 'preview://update',
+  monitorsChanged: 'system://monitors-changed',
   updateProgress: 'update://progress'
 } as const
 
@@ -117,11 +119,23 @@ export interface PreviewAction {
   payload?: any
 }
 
+export interface PreviewHostLayout {
+  mode: 'host' | 'custom'
+  displayMode: PreviewDisplayMode
+  width: number
+  height: number
+  visibleRows: number
+  maxVisibleRows: number
+}
+
 export interface PreviewPayload {
   mode?: PreviewMode
   pluginId: string
   title: string
   status?: 'online' | 'offline' | 'busy' | 'error' | 'info' | string
+  /** Explicit core state text. Compact previews only show this field. */
+  stateText?: string
+  /** Legacy/general status label, retained for default previews. */
   statusText?: string
   subtitle?: string
   metrics?: PreviewMetric[]
@@ -129,6 +143,8 @@ export interface PreviewPayload {
   progress?: PreviewProgress
   actions?: PreviewAction[]
   customUrl?: string
+  /** Effective host viewport and row limits; included for preview skins. */
+  hostLayout?: PreviewHostLayout
 }
 
 export interface ButtonRect {

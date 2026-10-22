@@ -217,6 +217,8 @@ pub struct Manifest {
     pub auto_start: bool,
     #[serde(default, rename = "capabilities", alias = "permissions")]
     pub permissions: Vec<String>,
+    #[serde(default, rename = "requiredCapabilities")]
+    pub required_permissions: Vec<String>,
     #[serde(default)]
     pub publisher: String,
     #[serde(default, rename = "key_id")]
@@ -596,6 +598,7 @@ fn shared_manifest(manifest: &Manifest) -> Result<PluginManifest, String> {
         trust: manifest.trust.unwrap_or_default(),
         auto_start: manifest.auto_start,
         permissions: manifest.permissions.clone(),
+        required_permissions: manifest.required_permissions.clone(),
         ui,
         hover_preview: manifest.hover_preview.clone(),
         minimum_host_version: manifest.minimum_host_version.clone(),
@@ -2234,6 +2237,7 @@ mod tests {
             trust: PluginTrust::TrustedLocal,
             auto_start: false,
             permissions: Vec::new(),
+            required_permissions: Vec::new(),
             ui: None,
             hover_preview: None,
             minimum_host_version: None,

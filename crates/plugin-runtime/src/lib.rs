@@ -301,7 +301,7 @@ impl PluginManager {
 
     #[cfg(windows)]
     pub fn attach_dynamic(&mut self, plugin: Box<dyn Plugin>) -> Result<(), RuntimeError> {
-        let manifest = plugin.manifest().clone();
+        let mut manifest = plugin.manifest().clone();
         manifest.validate().map_err(RuntimeError::Protocol)?;
         let id = manifest.id.clone();
         let entry = self
@@ -316,6 +316,11 @@ impl PluginManager {
         {
             return Err(RuntimeError::Unavailable(id));
         }
+        // Required capabilities are host package metadata. Dynamic plugin SDKs
+        // serialize their runtime manifest independently, so retain the
+        // package-declared requirements when attaching the backend.
+        manifest.required_permissions = entry.info.manifest.required_permissions.clone();
+        manifest.validate().map_err(RuntimeError::Protocol)?;
         entry.info.manifest = manifest;
         entry.plugin = Some(plugin);
         Ok(())
@@ -777,6 +782,7 @@ mod tests {
                 trust: sideweave_plugin_api::PluginTrust::Sandboxed,
                 auto_start: false,
                 permissions: vec![],
+                required_permissions: vec![],
                 ui: Some(PluginUi {
                     entry: "ui/index.html".into(),
                     ..Default::default()
@@ -895,6 +901,7 @@ mod tests {
             trust: PluginTrust::TrustedLocal,
             auto_start: false,
             permissions: vec![],
+            required_permissions: vec![],
             ui: None,
             hover_preview: None,
             minimum_host_version: None,

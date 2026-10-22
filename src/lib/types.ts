@@ -1,4 +1,5 @@
 export type PerformanceProfile = 'eco' | 'balanced' | 'performance' | 'auto'
+export type PreviewDisplayMode = 'default' | 'compact'
 
 export interface PerformancePolicy {
   detailPrewarm: boolean
@@ -45,6 +46,7 @@ export interface AppearanceSettings {
   background_image_blur: number
   interface_scale: number
   sidebar_position: 'left' | 'right' | 'top'
+  sidebar_monitor_id: string | null
   collapsed_width: number
   icon_size: number
   peek_width: number
@@ -53,6 +55,9 @@ export interface AppearanceSettings {
   control_panel_opacity: number
   preview_panel_opacity: number
   preview_image_opacity: number
+  preview_visible_rows: number
+  preview_width: number | null
+  preview_display_mode: PreviewDisplayMode
   sidebar_image_opacity: number
   detail_image_opacity: number
   component_opacity: number
@@ -61,6 +66,17 @@ export interface AppearanceSettings {
   sidebar_y_offset: number
   sidebar_x_offset: number
   sidebar_border_color: string
+}
+
+export interface MonitorOption {
+  id: string | null
+  name: string
+  device_name: string | null
+  label: string
+  width: number
+  height: number
+  scale: number
+  is_primary: boolean
 }
 
 export interface PluginsSettings {

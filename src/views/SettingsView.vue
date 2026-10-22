@@ -6,6 +6,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import Icon from '../ui/Icon.vue'
 import HotkeyRecorder from '../ui/HotkeyRecorder.vue'
+import MonitorPicker from '../ui/MonitorPicker.vue'
 import RangeSlider from '../ui/RangeSlider.vue'
 import Toast from '../ui/Toast.vue'
 import { getPerformanceStatus, setSetting } from '../lib/api'
@@ -107,7 +108,9 @@ const effectiveModeLabel = computed(() => {
 
 /** 滑块气泡格式化 */
 const fmtMs = (v: number) => `${v} ms`
+const fmtPx = (v: number) => `${v} px`
 const fmtPercent = (v: number) => `${Math.round(v * 100)}%`
+const fmtRows = (v: number) => `${v} 条`
 
 onMounted(() => {
   darkQuery.addEventListener('change', onSchemeChange)
@@ -283,6 +286,17 @@ async function openControlCenter() {
       <Switch :model-value="settings.general.enable_mouse_hover" aria-label="悬停展开侧边栏" @update:model-value="change('general', 'enable_mouse_hover', $event)" />
     </div>
 
+    <div class="card row-card">
+      <div class="row-main">
+        <div class="row-title">显示器</div>
+        <div class="row-desc">选择侧边栏停靠屏幕；自动模式跟随鼠标所在屏幕</div>
+      </div>
+      <MonitorPicker
+        :model-value="settings.appearance.sidebar_monitor_id ?? null"
+        @update:model-value="(value) => change('appearance', 'sidebar_monitor_id', value)"
+      />
+    </div>
+
     <!-- 自动隐藏延迟 -->
     <div class="card row-card">
       <div class="row-main">
@@ -315,6 +329,75 @@ async function openControlCenter() {
         aria-label="悬停预览延迟"
         @commit="(v) => change('general', 'hover_preview_delay', v)"
       />
+    </div>
+    <div class="card row-card">
+      <div class="row-main">
+        <div class="row-title">预览列表可见条数</div>
+        <div class="row-desc">宿主表格预览默认显示 {{ settings.appearance.preview_visible_rows ?? 3 }} 条；自定义插件页由插件控制</div>
+      </div>
+      <RangeSlider
+        :model-value="settings.appearance.preview_visible_rows ?? 3"
+        :min="1"
+        :max="8"
+        :step="1"
+        :format="fmtRows"
+        aria-label="预览列表可见条数"
+        @commit="(v) => change('appearance', 'preview_visible_rows', v)"
+      />
+    </div>
+    <div class="card row-card">
+      <div class="row-main">
+        <div class="row-title">预览显示模式</div>
+        <div class="row-desc">简洁模式隐藏插件标题区，保留状态和预览数据；自定义预览页可自行处理</div>
+      </div>
+      <div class="segmented">
+        <button
+          type="button"
+          :class="{ on: (settings.appearance.preview_display_mode ?? 'default') === 'default' }"
+          aria-label="默认预览显示模式"
+          @click="change('appearance', 'preview_display_mode', 'default')"
+        >默认</button>
+        <button
+          type="button"
+          :class="{ on: settings.appearance.preview_display_mode === 'compact' }"
+          aria-label="简洁预览显示模式"
+          @click="change('appearance', 'preview_display_mode', 'compact')"
+        >简洁</button>
+      </div>
+    </div>
+    <div class="card row-card preview-width-card">
+      <div class="row-main">
+        <div class="row-title">预览卡片宽度</div>
+        <div class="row-desc">
+          {{ settings.appearance.preview_width == null ? '跟随插件清单默认宽度；自定义插件页由插件控制' : `${settings.appearance.preview_width} px（仅宿主表格预览）` }}
+        </div>
+      </div>
+      <div class="preview-width-controls">
+        <div class="segmented">
+          <button
+            type="button"
+            :class="{ on: settings.appearance.preview_width == null }"
+            aria-label="预览卡片宽度跟随插件默认值"
+            @click="change('appearance', 'preview_width', null)"
+          >跟随插件</button>
+          <button
+            type="button"
+            :class="{ on: settings.appearance.preview_width != null }"
+            aria-label="自定义预览卡片宽度"
+            @click="change('appearance', 'preview_width', settings.appearance.preview_width ?? 280)"
+          >自定义</button>
+        </div>
+        <RangeSlider
+          v-if="settings.appearance.preview_width != null"
+          :model-value="settings.appearance.preview_width"
+          :min="240"
+          :max="480"
+          :step="20"
+          :format="fmtPx"
+          aria-label="预览卡片宽度"
+          @commit="(v) => change('appearance', 'preview_width', v)"
+        />
+      </div>
     </div>
       </div>
     </section>
@@ -437,6 +520,18 @@ async function openControlCenter() {
   justify-content: space-between;
   gap: 16px;
   padding: 12px 16px;
+}
+
+.preview-width-card {
+  align-items: flex-start;
+}
+
+.preview-width-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .row-main {

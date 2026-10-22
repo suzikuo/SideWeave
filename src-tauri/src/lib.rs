@@ -246,6 +246,168 @@ pub(crate) fn plugin_permission_granted<R: tauri::Runtime>(
 // ---------- 几何布局 ----------
 
 /// 光标所在显示器的缩放系数（设置值是逻辑像素，窗口 API 用物理像素）
+fn monitor_key(monitor: &tauri::Monitor) -> Option<String> {
+    let name = monitor.name()?.trim();
+    if name.is_empty() {
+        return None;
+    }
+    Some(
+        platform::monitor_identity(name)
+            .map(|identity| identity.id)
+            .unwrap_or_else(|| format!("display-name:{}", name.to_ascii_lowercase())),
+    )
+}
+
+fn monitor_display_name(monitor: &tauri::Monitor) -> String {
+    let Some(name) = monitor.name() else {
+        return "显示器".into();
+    };
+    platform::monitor_identity(name)
+        .and_then(|identity| identity.friendly_name)
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| {
+            name.trim()
+                .strip_prefix("\\\\.\\")
+                .unwrap_or(name.trim())
+                .to_string()
+        })
+}
+
+fn monitor_options<R: tauri::Runtime>(app: &AppHandle<R>) -> Vec<MonitorOption> {
+    let Ok(mut monitors) = app.available_monitors() else {
+        return Vec::new();
+    };
+    monitors.sort_by_key(|monitor| {
+        let position = monitor.position();
+        (position.y, position.x)
+    });
+    let primary_id = app
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .and_then(|monitor| monitor_key(&monitor));
+
+    monitors
+        .iter()
+        .enumerate()
+        .map(|(index, monitor)| {
+            let size = monitor.size();
+            let id = monitor_key(monitor);
+            let name = monitor_display_name(monitor);
+            let device_name = monitor.name().map(|name| {
+                name.trim()
+                    .strip_prefix("\\\\.\\")
+                    .unwrap_or(name.trim())
+                    .to_string()
+            });
+            let is_primary = id.is_some() && id == primary_id;
+            let mut label = format!(
+                "{name}{} · {}×{} · 屏幕 {}",
+                device_name
+                    .as_deref()
+                    .filter(|device_name| *device_name != name)
+                    .map(|device_name| format!(" ({device_name})"))
+                    .unwrap_or_default(),
+                size.width,
+                size.height,
+                index + 1
+            );
+            if id.is_none() {
+                label.push_str(" · 不支持固定选择");
+            }
+            if is_primary {
+                label.push_str(" · 主屏");
+            }
+            MonitorOption {
+                id,
+                name,
+                device_name,
+                label,
+                width: size.width,
+                height: size.height,
+                scale: monitor.scale_factor(),
+                is_primary,
+            }
+        })
+        .collect()
+}
+
+fn sidebar_display<R: tauri::Runtime>(
+    app: &AppHandle<R>,
+    settings: &Settings,
+) -> Option<(platform::WorkArea, f64)> {
+    let monitors = app.available_monitors().ok()?;
+    if monitors.is_empty() {
+        return None;
+    }
+
+    let selected = settings
+        .appearance
+        .sidebar_monitor_id
+        .as_deref()
+        .and_then(|target_id| {
+            monitors
+                .iter()
+                .find(|monitor| monitor_key(monitor).as_deref() == Some(target_id))
+                .cloned()
+        });
+    let monitor = if let Some(selected) = selected {
+        selected
+    } else if settings.appearance.sidebar_monitor_id.is_some() {
+        app.primary_monitor()
+            .ok()
+            .flatten()
+            .or_else(|| monitors.first().cloned())?
+    } else {
+        let cursor = app.cursor_position().ok();
+        let under_cursor = cursor.and_then(|cursor| {
+            monitors.iter().find_map(|monitor| {
+                let position = monitor.position();
+                let size = monitor.size();
+                let x = f64::from(position.x);
+                let y = f64::from(position.y);
+                (cursor.x >= x
+                    && cursor.x < x + f64::from(size.width)
+                    && cursor.y >= y
+                    && cursor.y < y + f64::from(size.height))
+                    .then(|| monitor.clone())
+            })
+        });
+        under_cursor
+            .or_else(|| app.primary_monitor().ok().flatten())
+            .or_else(|| monitors.first().cloned())?
+    };
+
+    let work_area = monitor.work_area();
+    let work_area_size = work_area.size;
+    let (area_x, area_y, area_w, area_h) = if work_area_size.width > 0 && work_area_size.height > 0 {
+        (
+            work_area.position.x,
+            work_area.position.y,
+            work_area_size.width as i32,
+            work_area_size.height as i32,
+        )
+    } else {
+        let position = monitor.position();
+        let size = monitor.size();
+        (
+            position.x,
+            position.y,
+            size.width as i32,
+            size.height as i32,
+        )
+    };
+    Some((
+        platform::WorkArea {
+            x: area_x,
+            y: area_y,
+            w: area_w,
+            h: area_h,
+        },
+        monitor.scale_factor(),
+    ))
+}
+
 pub(crate) fn monitor_scale<R: tauri::Runtime>(app: &AppHandle<R>) -> f64 {
     let Ok(cursor) = app.cursor_position() else {
         return 1.0;
@@ -561,8 +723,9 @@ fn apply_sidebar<R: tauri::Runtime>(app: &AppHandle<R>) {
     };
     let s = host(app).settings_clone();
     let expanded = expanded_flag(app);
-    let area = platform::work_area();
-    let scale = monitor_scale(app) * s.appearance.interface_scale.clamp(0.7, 1.6);
+    let (area, monitor_scale) = sidebar_display(app, &s)
+        .unwrap_or_else(|| (platform::work_area(), monitor_scale(app)));
+    let scale = monitor_scale * s.appearance.interface_scale.clamp(0.7, 1.6);
     let (pos, size) = sidebar_geometry(app, &area, &s, expanded, scale);
     let _ = win.set_position(pos);
     let _ = win.set_size(size);
@@ -623,14 +786,15 @@ fn close_main_surface<R: tauri::Runtime>(app: &AppHandle<R>) {
         let _ = window.unminimize();
     }
     if was_control_center {
-        schedule_sidebar_collapse_after_control(app);
+        schedule_sidebar_auto_hide(app);
     }
     schedule_detail_delayed_destroy(app);
 }
 
-/// Closing the control center can leave the sidebar expanded without producing a
-/// mouseleave event. Recheck the pointer after the configured auto-hide delay.
-fn schedule_sidebar_collapse_after_control<R: tauri::Runtime>(app: &AppHandle<R>) {
+/// The sidebar can remain expanded when no mouseleave event is generated (for
+/// example at startup or after a display topology change). Recheck the pointer
+/// after the configured auto-hide delay.
+fn schedule_sidebar_auto_hide<R: tauri::Runtime>(app: &AppHandle<R>) {
     let settings = host(app).settings_clone();
     if !settings.general.enable_mouse_hover {
         return;
@@ -662,7 +826,7 @@ fn schedule_sidebar_collapse_after_control<R: tauri::Runtime>(app: &AppHandle<R>
 
             let cursor_over_sidebar = sidebar_window(&main_handle)
                 .and_then(|window| {
-                    let cursor = window.cursor_position().ok()?;
+                    let cursor = main_handle.cursor_position().ok()?;
                     let position = window.outer_position().ok()?;
                     let size = window.outer_size().ok()?;
                     Some(
@@ -677,6 +841,82 @@ fn schedule_sidebar_collapse_after_control<R: tauri::Runtime>(app: &AppHandle<R>
                 collapse(&main_handle);
             }
         });
+    });
+}
+
+type MonitorLayout = Vec<(Option<String>, i32, i32, u32, u32, u64, bool)>;
+
+fn monitor_layout<R: tauri::Runtime>(app: &AppHandle<R>) -> Option<MonitorLayout> {
+    let monitors = app.available_monitors().ok()?;
+    let primary_id = app
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .and_then(|monitor| monitor_key(&monitor));
+    let mut layout = monitors
+        .into_iter()
+        .map(|monitor| {
+            let position = monitor.position();
+            let size = monitor.size();
+            let id = monitor_key(&monitor);
+            (
+                id.clone(),
+                position.x,
+                position.y,
+                size.width,
+                size.height,
+                monitor.scale_factor().to_bits(),
+                id.is_some() && id == primary_id,
+            )
+        })
+        .collect::<MonitorLayout>();
+    layout.sort_unstable();
+    Some(layout)
+}
+
+/// Tauri does not emit a dedicated display-topology event. Poll the small
+/// monitor snapshot periodically so hotplug and display arrangement changes
+/// can reposition the sidebar and trigger its normal auto-hide check.
+fn watch_monitor_layout<R: tauri::Runtime>(app: &AppHandle<R>) {
+    let previous_layout = Arc::new(Mutex::new(monitor_layout(app)));
+    let handle = app.clone();
+    std::thread::spawn(move || loop {
+        std::thread::sleep(Duration::from_secs(1));
+        let main_handle = handle.clone();
+        let previous_layout = Arc::clone(&previous_layout);
+        if handle
+            .run_on_main_thread(move || {
+                let Some(current_layout) = monitor_layout(&main_handle) else {
+                    return;
+                };
+                let changed = {
+                    let Ok(mut previous) = previous_layout.lock() else {
+                        return;
+                    };
+                    if previous.as_ref() == Some(&current_layout) {
+                        false
+                    } else {
+                        *previous = Some(current_layout);
+                        true
+                    }
+                };
+                if !changed {
+                    return;
+                }
+
+                let _ = main_handle.emit("system://monitors-changed", ());
+                if current_surface(&main_handle) == MainSurface::Sidebar {
+                    host(&main_handle)
+                        .collapse_gen
+                        .fetch_add(1, Ordering::SeqCst);
+                    apply_sidebar(&main_handle);
+                    schedule_sidebar_auto_hide(&main_handle);
+                }
+            })
+            .is_err()
+        {
+            break;
+        }
     });
 }
 
@@ -759,8 +999,9 @@ fn animate_sidebar_collapse<R: tauri::Runtime>(app: &AppHandle<R>, generation: u
     };
 
     let settings = host(app).settings_clone();
-    let area = platform::work_area();
-    let scale = monitor_scale(app) * settings.appearance.interface_scale.clamp(0.7, 1.6);
+    let (area, monitor_scale) = sidebar_display(app, &settings)
+        .unwrap_or_else(|| (platform::work_area(), monitor_scale(app)));
+    let scale = monitor_scale * settings.appearance.interface_scale.clamp(0.7, 1.6);
     let (target, _) = sidebar_geometry(app, &area, &settings, false, scale);
     let handle = app.clone();
 
@@ -1013,6 +1254,18 @@ struct SystemInfo {
     plugins_enabled: usize,
 }
 
+#[derive(Serialize, Clone)]
+struct MonitorOption {
+    id: Option<String>,
+    name: String,
+    device_name: Option<String>,
+    label: String,
+    width: u32,
+    height: u32,
+    scale: f64,
+    is_primary: bool,
+}
+
 static STARTED: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
 
 #[cfg(debug_assertions)]
@@ -1029,6 +1282,11 @@ fn startup_log(stage: impl std::fmt::Display) {
 
 #[cfg(not(debug_assertions))]
 fn startup_log(_stage: impl std::fmt::Display) {}
+
+#[tauri::command]
+fn get_monitor_options(app: AppHandle) -> Vec<MonitorOption> {
+    monitor_options(&app)
+}
 
 #[tauri::command]
 fn get_system_info(app: AppHandle) -> SystemInfo {
@@ -1190,7 +1448,21 @@ fn set_setting(
 
     // 布局和收起态交互设置即时生效
     if category == "appearance" || (category == "general" && key == "enable_mouse_hover") {
+        if category == "appearance" {
+            host(&app)
+                .collapse_gen
+                .fetch_add(1, Ordering::SeqCst);
+        }
         apply_sidebar(&app);
+        if category == "appearance" && key == "sidebar_monitor_id" {
+            schedule_sidebar_auto_hide(&app);
+        }
+    }
+
+    if category == "appearance" && key == "preview_display_mode" {
+        if let Some(coordinator) = app.try_state::<Arc<preview_window::PreviewCoordinator>>() {
+            coordinator.update_display_mode(&app);
+        }
     }
 
     // 运行模式热切换
@@ -1779,7 +2051,7 @@ fn set_plugin_permission(
     if !sideweave_plugin_api::permissions::is_known(&permission) {
         return Err(format!("未知插件权限：{permission}"));
     }
-    let requested = {
+    let (requested, required) = {
         let state = host(&app);
         let managers = state.plugin_manager.lock().unwrap();
         let manager = managers
@@ -1788,11 +2060,20 @@ fn set_plugin_permission(
         manager
             .registry()
             .get(&parsed_id)
-            .map(|info| info.manifest.permissions.clone())
+            .map(|info| {
+                (
+                    info.manifest.permissions.clone(),
+                    info.manifest.required_permissions.clone(),
+                )
+            })
             .ok_or_else(|| format!("插件不存在：{plugin_id}"))?
     };
     if !sideweave_plugin_api::permissions::is_declared(&requested, &permission) {
         return Err(format!("插件未声明此权限：{permission}"));
+    }
+
+    if !granted && required.contains(&permission) {
+        return Err(format!("无法关闭插件必需权限：{permission}"));
     }
 
     let changed = {
@@ -1847,6 +2128,7 @@ pub(crate) fn plugin_call_blocking(
     let manager = managers
         .as_mut()
         .ok_or_else(|| "plugin runtime is not initialized".to_string())?;
+
     ensure_native_plugin_backend(app, manager, &request.plugin_id)?;
     let should_activate = matches!(
         &request.kind,
@@ -2070,6 +2352,7 @@ fn reload_installed_plugins(app: &AppHandle) -> Result<(), String> {
 #[tauri::command]
 async fn app_ready(app: AppHandle) -> Result<(), String> {
     startup_log("command app_ready: begin");
+    schedule_sidebar_auto_hide(&app);
     let result = activate_startup_plugins_async(app).await;
     startup_log(format!(
         "command app_ready: finished (ok={})",
@@ -2578,6 +2861,35 @@ pub fn run() {
                 }
                 s.plugins.permission_grants_initialized = true;
             }
+            let required_plugin_permissions = host(&handle)
+                .plugin_manager
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map(|manager| {
+                    manager
+                        .registry()
+                        .list()
+                        .into_iter()
+                        .map(|info| {
+                            (
+                                info.manifest.id.to_string(),
+                                info.manifest.required_permissions,
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            for (plugin_id, required) in required_plugin_permissions {
+                let grants = s
+                    .plugins
+                    .permission_grants
+                    .entry(plugin_id)
+                    .or_default();
+                for permission in required {
+                    grants.insert(permission, true);
+                }
+            }
             *host(&handle).settings.lock().unwrap() = s.clone();
             host(&handle).performance_manager.set_profile(
                 performance::PerformanceProfile::parse(&s.general.performance_profile)
@@ -2622,6 +2934,8 @@ pub fn run() {
             startup_log("setup: sidebar geometry applied");
             let _ = sidebar.show();
             startup_log("setup: sidebar shown");
+            watch_monitor_layout(&handle);
+            startup_log("setup: monitor layout watch started");
 
             // 全局热键：从用户设置注册（失败不阻断启动，托盘仍可切换）
             let hotkey = s.shortcuts.toggle_sidebar.clone();
@@ -2679,6 +2993,7 @@ pub fn run() {
             host_notification_plugin_icon,
             startup_frontend_log,
             app_ready,
+            get_monitor_options,
             get_system_info,
             get_performance_status,
             get_main_surface,

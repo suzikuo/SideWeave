@@ -192,8 +192,9 @@ pub struct PluginUi {
 #[serde(default)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginHoverPreview {
+    /// Preferred width for the host-rendered data preview; custom `entry` previews use it as their viewport width.
     pub width: Option<u32>,
-    /// Maximum height for a host-rendered data preview; custom `entry` previews use this as their viewport height.
+    /// Viewport height for custom `entry` previews. Host-rendered previews size themselves from their content and host settings.
     pub height: Option<u32>,
     pub data_method: Option<String>,
     pub entry: Option<String>,
@@ -225,6 +226,9 @@ pub struct PluginManifest {
     pub auto_start: bool,
     #[serde(default, rename = "capabilities", alias = "permissions")]
     pub permissions: Vec<String>,
+    /// Capabilities that the host must keep granted because the plugin cannot operate without them.
+    #[serde(default, rename = "requiredCapabilities")]
+    pub required_permissions: Vec<String>,
     #[serde(default)]
     pub ui: Option<PluginUi>,
     #[serde(default)]
@@ -249,6 +253,7 @@ impl Default for PluginManifest {
             trust: PluginTrust::Sandboxed,
             auto_start: true,
             permissions: Vec::new(),
+            required_permissions: Vec::new(),
             ui: None,
             hover_preview: None,
             minimum_host_version: None,
@@ -312,6 +317,14 @@ impl PluginManifest {
         {
             return Err(ProtocolError::InvalidManifest(format!(
                 "unknown permission: {permission}"
+            )));
+        }
+        if let Some(permission) = self.required_permissions.iter().find(|permission| {
+            !permissions::is_known(permission)
+                || !permissions::is_declared(&self.permissions, permission)
+        }) {
+            return Err(ProtocolError::InvalidManifest(format!(
+                "required capability must be a declared permission: {permission}"
             )));
         }
         if let Some(hover) = &self.hover_preview {
@@ -642,6 +655,7 @@ mod tests {
             trust: PluginTrust::Sandboxed,
             auto_start: false,
             permissions: vec![],
+            required_permissions: vec![],
             ui: Some(PluginUi {
                 entry: "ui/index.html".into(),
                 ..Default::default()

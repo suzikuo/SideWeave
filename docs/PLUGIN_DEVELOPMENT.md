@@ -57,6 +57,54 @@ onUnmounted(stopLifecycleListener)
 
 插件可在 `ui.entry` 对应的 iframe 中自行实现整个详情内容。默认由宿主显示插件名称和图标；在 manifest 的 `ui` 中设置 `"chrome": "plugin"` 可隐藏这段宿主标题栏，让插件 UI 使用完整内容区域。宿主仍负责关闭、最小化和窗口拖动控件。省略 `chrome` 或设置为 `"host"` 时使用默认标题栏。Rust 插件可设置 `PluginUi.chrome` 为 `Some(PluginUiChrome::Plugin)`。
 
+## 悬停预览
+
+插件可以在 `hoverPreview` 中选择宿主数据预览或自定义预览页，两种方式不能同时设置：
+
+- `dataMethod` 返回的 `items` 使用宿主的紧凑表格预览。用户可在外观设置中调整同时显示的条数和宽度；宿主按内容增高卡片，屏幕空间不足时列表滚动。`width` 作为默认宽度，用户宽度设置优先；此模式下 `height` 不再限制卡片高度。
+- `entry` 指向插件包内的自定义 HTML 页面。插件负责页面内容和内部样式，清单中的 `width`、`height` 定义该页面的视口尺寸，最终窗口仍会限制在屏幕工作区内。
+
+宿主会在预览数据和皮肤上下文的 `hostLayout` 中提供最终视口宽高、模式和有效条数上限。自定义插件页面通过 iframe 视口尺寸响应布局；自定义预览皮肤可以读取 `hostLayout` 并选择自己的排版。
+
+```json
+"hoverPreview": {
+  "width": 360,
+  "height": 220,
+  "entry": "preview.html"
+}
+```
+
+宿主外观设置中的预览显示模式默认为 `default`，也可设为 `compact`。自定义预览页的内容和样式仍由插件控制；页面可监听父窗口发来的 `preview-context` 消息，根据 `displayMode` 自行调整布局，也可以忽略该消息。消息包含 `__agileTiles: true`、匹配当前插件的 `plugin_id`，以及 `displayMode: "default" | "compact"`；页面加载和设置变化时都会收到当前值。
+
+预览皮肤也可从上下文中的 `hostLayout.displayMode` 读取当前模式。
+
+```js
+window.addEventListener('message', (event) => {
+  const message = event.data
+  if (event.source !== window.parent || message?.__agileTiles !== true ||
+      message.type !== 'preview-context' || message.plugin_id !== window.__agileTilesPluginId) return
+
+  document.documentElement.dataset.previewDisplayMode = message.displayMode
+})
+```
+
+## 简洁预览中的状态字段
+
+`statusText` 是默认预览中的通用状态徽标文案，旧插件可以继续使用。需要在简洁模式显示的核心状态请额外提供 `stateText`；状态颜色仍由 `status`（如 `online`、`offline` 或 `error`）控制。默认模式优先显示 `statusText`，缺省时回退到 `stateText`；简洁模式只显示 `stateText`，并隐藏 `statusText` 和 `metrics`，不会根据文案内容判断状态或统计。
+
+```rust
+json!({
+    "status": "online",
+    "stateText": "已连接",
+    "statusText": format!("已连接（{connections} 条链路）"),
+    "metrics": metrics,
+})
+```
+
+条目数等汇总信息可继续放在 `statusText` 或 `metrics` 中，因此只会在默认模式显示。旧插件无需立即迁移；要让核心状态出现在简洁模式，请将状态文案声明为 `stateText`。
+
+声明式预览在当前模式下没有可见内容时，宿主不会弹出预览窗口。只有标题或副标题、空 `items` 数组，或简洁模式下被隐藏的统计文案和指标，都不单独算作内容。自定义 `entry` 页面仍由插件绘制，宿主不检查 iframe 内部内容。
+
 ## UI 状态与 `plugin_call` 边界
 
 iframe 内不涉及外部副作用的操作应完全由插件前端处理，不调用 `plugin_call`：
@@ -206,6 +254,8 @@ let requested = vec![
 ```
 
 `network.listen` 和 `network.connect` 当前用于声明记录；受信任的本地 DLL 或独立进程可以直接调用操作系统网络 API，宿主无法通过这些开关拦截。相同的信任边界也适用于可信本地代码直接访问文件、进程和剪贴板。Web 沙箱的本地文件和系统能力经宿主 API 执行并受权限控制。插件的 `trusted_local` 字段不能自行授予信任，最终信任来源仍由宿主决定。
+
+原生插件清单可以用 `requiredCapabilities` 声明必须保留的 `capabilities` 子集。宿主会保持这些权限为已授权、禁用设置开关，并拒绝通过设置命令撤销；这只表达插件的必需能力，不能限制原生代码直接访问操作系统资源。
 
 ## Native backend startup policy
 

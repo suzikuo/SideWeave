@@ -46,6 +46,7 @@ pub struct Appearance {
     pub background_image_blur: f64,
     pub interface_scale: f64,
     pub sidebar_position: String,
+    pub sidebar_monitor_id: Option<String>,
     pub collapsed_width: u32,
     pub icon_size: u32,
     pub peek_width: u32,
@@ -54,6 +55,9 @@ pub struct Appearance {
     pub control_panel_opacity: f64,
     pub preview_panel_opacity: f64,
     pub preview_image_opacity: f64,
+    pub preview_visible_rows: u32,
+    pub preview_width: Option<u32>,
+    pub preview_display_mode: String,
     pub sidebar_image_opacity: f64,
     pub detail_image_opacity: f64,
     pub component_opacity: f64,
@@ -78,6 +82,7 @@ impl Default for Appearance {
             background_image_blur: 1.0,
             interface_scale: 1.0,
             sidebar_position: "right".into(),
+            sidebar_monitor_id: None,
             collapsed_width: 64,
             icon_size: 36,
             peek_width: 6,
@@ -86,6 +91,9 @@ impl Default for Appearance {
             control_panel_opacity: 0.85,
             preview_panel_opacity: 0.97,
             preview_image_opacity: 0.7,
+            preview_visible_rows: 3,
+            preview_width: None,
+            preview_display_mode: "default".into(),
             sidebar_image_opacity: 0.0,
             detail_image_opacity: 0.0,
             component_opacity: 1.0,
@@ -483,6 +491,16 @@ pub fn apply_setting(
         ("appearance", "sidebar_position") => {
             s.appearance.sidebar_position = as_enum(v, &["left", "right", "top"])?
         }
+        ("appearance", "sidebar_monitor_id") => {
+            s.appearance.sidebar_monitor_id = match v {
+                JsonValue::Null => None,
+                JsonValue::String(id) if !id.trim().is_empty() && id.len() <= 1024 => {
+                    Some(id.clone())
+                }
+                JsonValue::String(_) => return Err("显示器标识不能为空或过长".into()),
+                _ => return Err("显示器标识格式无效".into()),
+            }
+        }
         ("appearance", "collapsed_width") => {
             s.appearance.collapsed_width = as_u32_clamped(v, 56, 96)?
         }
@@ -516,6 +534,23 @@ pub fn apply_setting(
         }
         ("appearance", "preview_image_opacity") => {
             s.appearance.preview_image_opacity = as_f64_clamped(v, 0.0, 1.0)?
+        }
+        ("appearance", "preview_visible_rows") => {
+            s.appearance.preview_visible_rows = as_u32_clamped(v, 1, 8)?
+        }
+        ("appearance", "preview_width") => {
+            s.appearance.preview_width = if v.is_null() {
+                None
+            } else {
+                Some(as_u32_clamped(v, 240, 480)?)
+            }
+        }
+        ("appearance", "preview_display_mode") => {
+            let mode = v
+                .as_str()
+                .filter(|mode| matches!(*mode, "default" | "compact"))
+                .ok_or_else(|| "预览显示模式无效".to_string())?;
+            s.appearance.preview_display_mode = mode.to_string();
         }
         ("appearance", "component_opacity") => {
             s.appearance.component_opacity = as_f64_clamped(v, 0.0, 1.0)?

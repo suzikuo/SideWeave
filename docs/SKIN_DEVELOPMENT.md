@@ -90,6 +90,7 @@ await ui.call('navigation.openPlugin', { pluginId: 'bookmarks' })
   page?: string
   expanded?: boolean
   preview?: PreviewPayload
+  hostLayout?: PreviewHostLayout // preview context includes displayMode: 'default' | 'compact'
   appVersion?: string
   dataDir?: string
 }

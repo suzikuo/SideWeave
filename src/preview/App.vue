@@ -24,9 +24,25 @@ const preview = ref<PreviewPayload | null>(null)
 const settings = ref<Settings | null>(null)
 const actionLoading = ref<string | null>(null)
 const actionError = ref<string>('')
+const displayMode = computed(() =>
+  settings.value?.appearance.preview_display_mode
+    ?? preview.value?.hostLayout?.displayMode
+    ?? 'default'
+)
+const isCompact = computed(() => displayMode.value === 'compact')
+const defaultStatusText = computed(() =>
+  preview.value?.statusText ?? preview.value?.stateText ?? ''
+)
 const visibleActions = computed(() =>
   preview.value?.actions?.filter((action) => Boolean(action.method)) ?? []
 )
+const itemListStyle = computed(() => {
+  const items = preview.value?.items ?? []
+  const rows = preview.value?.hostLayout?.visibleRows
+    ?? Math.min(items.length, settings.value?.appearance.preview_visible_rows ?? 3)
+  const height = rows > 0 ? rows * 36 + rows - 1 + 10 : 0
+  return height > 0 ? { maxHeight: `${height}px` } : {}
+})
 interface CustomPreviewSlot {
   pluginId: string
   customUrl: string
@@ -122,6 +138,15 @@ function themeMessage(id: string) {
   }
 }
 
+function previewContextMessage(id: string) {
+  return {
+    __agileTiles: true,
+    type: 'preview-context',
+    plugin_id: id,
+    displayMode: displayMode.value
+  }
+}
+
 function syncFrameTheme(targetPluginId?: string) {
   const pids = targetPluginId ? [targetPluginId] : customSlots.map((s) => s.pluginId)
   for (const pid of pids) {
@@ -132,10 +157,21 @@ function syncFrameTheme(targetPluginId?: string) {
   }
 }
 
+function syncCustomPreviewContext(targetPluginId?: string) {
+  const pids = targetPluginId ? [targetPluginId] : customSlots.map((slot) => slot.pluginId)
+  for (const pid of pids) {
+    const frame = customFrameRefs.get(pid)
+    if (frame?.contentWindow) {
+      postMessageSafe(frame.contentWindow, previewContextMessage(pid))
+    }
+  }
+}
+
 function onCustomFrameLoad(pluginId: string) {
   const slot = customSlots.find((s) => s.pluginId === pluginId)
   if (slot) slot.ready = true
   syncFrameTheme(pluginId)
+  syncCustomPreviewContext(pluginId)
 }
 
 interface UopRequest {
@@ -297,6 +333,7 @@ onMounted(async () => {
     settings.value = e.payload
     applyTheme(e.payload)
     syncFrameTheme()
+    syncCustomPreviewContext()
   })
 
   // 主动读取当前预览数据（防止首屏冷启动时错过广播事件）
@@ -352,7 +389,7 @@ onUnmounted(() => {
     <div
       v-if="preview"
       class="preview-card"
-      :class="{ 'is-custom': preview.mode === 'custom' }"
+      :class="{ 'is-custom': preview.mode === 'custom', 'is-compact': isCompact && preview.mode !== 'custom' }"
     >
       <!-- Mode 1: Custom Preview (插件全权负责 UI) -->
       <div v-show="preview.mode === 'custom'" class="custom-container">
@@ -371,19 +408,25 @@ onUnmounted(() => {
       <!-- Mode 2 & 3: Declarative / Static Preview (通用原语结构化渲染) -->
       <template v-if="preview.mode !== 'custom'">
         <!-- 头部：标题、副标题与呼吸状态徽标 -->
-        <div class="header">
+        <div v-if="isCompact && preview.stateText" class="compact-status-row">
+          <div class="status-badge" :class="`status-${preview.status || 'info'}`">
+            <span class="status-dot" />
+            <span class="status-text">{{ preview.stateText }}</span>
+          </div>
+        </div>
+        <div v-else-if="!isCompact" class="header">
           <div class="preview-app-icon"><Icon name="puzzle" :size="16" /></div>
           <div class="title-group">
             <div class="title">{{ preview.title }}</div>
             <div v-if="preview.subtitle" class="subtitle">{{ preview.subtitle }}</div>
           </div>
 
-          <div v-if="preview.statusText" class="status-badge" :class="`status-${preview.status || 'info'}`">
+          <div v-if="defaultStatusText" class="status-badge" :class="`status-${preview.status || 'info'}`">
             <span class="status-dot" />
-            <span class="status-text">{{ preview.statusText }}</span>
+            <span class="status-text">{{ defaultStatusText }}</span>
           </div>
         </div>
-        <div class="preview-divider" />
+        <div v-if="!isCompact" class="preview-divider" />
         <div class="preview-content">
 
         <!-- 进度条原语 -->
@@ -398,7 +441,7 @@ onUnmounted(() => {
         </div>
 
         <!-- 快捷条目列表原语（针对应用启动器等提供 items 的插件） -->
-        <div v-if="preview.items && preview.items.length > 0" class="items-list">
+        <div v-if="preview.items && preview.items.length > 0" class="items-list" :style="itemListStyle">
           <Button variant="ghost" size="sm"
             v-for="item in preview.items"
             :key="item.id"
@@ -438,7 +481,7 @@ onUnmounted(() => {
         </div>
 
         <!-- 动态指标网格原语 -->
-        <div v-else-if="preview.metrics && preview.metrics.length > 0" class="metrics-grid">
+        <div v-else-if="!isCompact && preview.metrics && preview.metrics.length > 0" class="metrics-grid">
           <div v-for="(metric, idx) in preview.metrics" :key="idx" class="metric-item">
             <span class="metric-label">{{ metric.label }}</span>
             <span class="metric-value">{{ metric.value }}</span>
@@ -478,7 +521,7 @@ onUnmounted(() => {
     :skin-id="settings.appearance.skin"
     surface="preview"
     :enabled="Boolean(preview)"
-    :context="{ settings, preview }"
+    :context="{ settings, preview, hostLayout: preview?.hostLayout ?? null }"
   />
 </template>
 
@@ -558,6 +601,14 @@ onUnmounted(() => {
   align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
+}
+
+.compact-status-row {
+  display: flex;
+  min-height: 18px;
+  flex: none;
+  align-items: center;
+  justify-content: flex-end;
 }
 
 .title-group {
@@ -674,7 +725,7 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 4px;
   flex-shrink: 0;
-  max-height: 146px;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   padding-right: 2px;
@@ -692,8 +743,8 @@ onUnmounted(() => {
   cursor: pointer;
   transition: all 0.15s ease;
   width: 100%;
-  height: 30px;
-  flex: 0 0 30px;
+  height: 36px;
+  flex: 0 0 36px;
   box-sizing: border-box;
   text-align: left;
 }
@@ -947,15 +998,16 @@ onUnmounted(() => {
 .progress-label { color: var(--muted-foreground); font-size: 8px; }
 .progress-track { height: 4px; border: 0; background: var(--preview-muted-fill); }
 .progress-fill { border-radius: 999px; background: var(--primary); }
-.items-list { display: flex; max-height: 120px; flex: none; flex-direction: column; gap: 1px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding: 4px; border: 1px solid color-mix(in srgb, var(--border) var(--preview-panel-opacity-percent, 97%), transparent); border-radius: 8px; background: var(--preview-panel-fill); }
-.preview-item-btn { display: flex; min-height: 36px; width: 100%; justify-content: flex-start; gap: 7px; padding: 4px 6px; border: 1px solid transparent; border-radius: 5px; background: color-mix(in srgb, color-mix(in srgb, var(--surface-subtle) 60%, transparent) var(--preview-panel-opacity-percent, 97%), transparent); color: var(--foreground); text-align: left; }
-.preview-item-btn:hover:not(:disabled) { border-color: color-mix(in srgb, var(--border) var(--preview-panel-opacity-percent, 97%), transparent); background: var(--preview-muted-fill); color: var(--foreground); }
+.items-list { display: flex; min-height: 0; flex: 0 1 auto; flex-direction: column; gap: 1px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding: 4px; border: 1px solid color-mix(in srgb, var(--border) var(--preview-panel-opacity-percent, 97%), transparent); border-radius: 8px; background: var(--preview-panel-fill); }
+.preview-item-btn { display: flex; min-height: 36px; height: 36px; width: 100%; flex: 0 0 36px; justify-content: flex-start; gap: 7px; padding: 4px 6px; border: 0; border-bottom: 1px solid color-mix(in srgb, var(--border) var(--preview-panel-opacity-percent, 97%), transparent); border-radius: 0; background: transparent; color: var(--foreground); text-align: left; }
+.preview-item-btn:last-child { border-bottom: 0; }
+.preview-item-btn:hover:not(:disabled) { background: var(--preview-muted-fill); color: var(--foreground); }
 .item-icon,
 .item-icon-placeholder { width: 24px; height: 24px; flex: none; border: 1px solid color-mix(in srgb, var(--border) var(--preview-panel-opacity-percent, 97%), transparent); border-radius: 6px; background: var(--preview-panel-fill); }
 .item-icon-placeholder { display: grid; place-items: center; color: var(--muted-foreground); }
-.item-title { overflow: hidden; font-size: 10px; font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
+.item-title { min-width: 0; overflow: hidden; font-size: 10px; font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
 .item-badge { border: 1px solid color-mix(in srgb, var(--border) var(--preview-panel-opacity-percent, 97%), transparent); border-radius: 4px; background: var(--preview-muted-fill); color: var(--muted-foreground); font-size: 8px; }
-.item-subtitle { display: none; }
+.item-subtitle { max-width: 82px; overflow: hidden; color: var(--muted-foreground); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
 .item-arrow { margin-left: auto; color: var(--muted-foreground); }
 .metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; padding: 5px 6px; }
 .metric-item { display: flex; min-height: 48px; flex-direction: column; justify-content: center; gap: 2px; padding: 6px 8px; border: 1px solid color-mix(in srgb, var(--border) var(--preview-panel-opacity-percent, 97%), transparent); border-radius: 7px; background: var(--preview-panel-fill); }

@@ -8,6 +8,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { getCurrent, onOpenUrl } from '@tauri-apps/plugin-deep-link'
 import HotkeyRecorder from '../ui/HotkeyRecorder.vue'
 import Icon from '../ui/Icon.vue'
+import MonitorPicker from '../ui/MonitorPicker.vue'
 import RangeSlider from '../ui/RangeSlider.vue'
 import Toast from '../ui/Toast.vue'
 import {
@@ -126,9 +127,10 @@ interface PluginPermissionDisplay {
   label: string
   description: string
   enforceable: boolean
+  required: boolean
 }
 
-const permissionDefinitions: Record<string, Omit<PluginPermissionDisplay, 'id'>> = {
+const permissionDefinitions: Record<string, Omit<PluginPermissionDisplay, 'id' | 'required'>> = {
   storage: { label: '插件设置存储', description: '读写本插件独立的键值存储', enforceable: true },
   'notification.system': { label: 'Windows 原生通知', description: '发送由 Windows 显示的系统通知', enforceable: true },
   'notification.desktop': { label: '宿主桌面通知', description: '在桌面右下角显示宿主样式通知', enforceable: true },
@@ -159,14 +161,27 @@ const pluginPermissionsById = computed<Record<string, { plugin: RuntimePluginInf
     )
     result[plugin.manifest.id] = {
       plugin,
-      permissions: [...new Set(requested)].map((permission) => ({
-        id: permission,
-        ...(permissionDefinitions[permission] ?? {
-          label: permission,
-          description: '插件清单请求的权限',
-          enforceable: false
-        })
-      }))
+      permissions: [...new Set(requested)].map((permission) => {
+        const required = (plugin.manifest.requiredCapabilities ?? []).includes(permission)
+        const fileWriteNotice = required
+          && plugin.manifest.id === 'file_share'
+          && permission === 'filesystem.write'
+        return {
+          id: permission,
+          required,
+          ...(fileWriteNotice
+            ? {
+                label: '文件写入',
+                description: '文件服务上传会由原生插件直接写入所选收件目录。本权限在宿主 API 层标为必需，但无法拦截原生代码直接访问文件系统或限制写入路径。',
+                enforceable: true
+              }
+            : permissionDefinitions[permission] ?? {
+                label: permission,
+                description: '插件清单请求的权限',
+                enforceable: false
+              })
+        }
+      })
     }
   }
   return result
@@ -436,6 +451,7 @@ const themeModeLabel = computed(() => {
 
 const fmtMs = (v: number) => `${v} ms`
 const fmtPx = (v: number) => `${v} px`
+const fmtRows = (v: number) => `${v} 条`
 const fmtPercent = (v: number) => `${Math.round(v * 100)}%`
 
 onMounted(() => {
@@ -1287,6 +1303,16 @@ onUnmounted(() => {
           </div>
           <div class="card row-card">
             <div class="row-main">
+              <div class="row-title">显示器</div>
+              <div class="row-desc">自动模式跟随鼠标；也可固定到指定屏幕</div>
+            </div>
+            <MonitorPicker
+              :model-value="settings.appearance.sidebar_monitor_id ?? null"
+              @update:model-value="(value) => change('appearance', 'sidebar_monitor_id', value)"
+            />
+          </div>
+          <div class="card row-card">
+            <div class="row-main">
               <div class="row-title">轨道宽度</div>
               <div class="row-desc">{{ settings.appearance.collapsed_width }} px</div>
             </div>
@@ -1314,6 +1340,75 @@ onUnmounted(() => {
               aria-label="边缘细缝宽度"
               @commit="(v) => change('appearance', 'peek_width', v)"
             />
+          </div>
+          <div class="card row-card">
+            <div class="row-main">
+              <div class="row-title">预览列表可见条数</div>
+              <div class="row-desc">宿主表格预览默认显示 {{ settings.appearance.preview_visible_rows ?? 3 }} 条；自定义插件页由插件控制</div>
+            </div>
+            <RangeSlider
+              :model-value="settings.appearance.preview_visible_rows ?? 3"
+              :min="1"
+              :max="8"
+              :step="1"
+              :format="fmtRows"
+              aria-label="预览列表可见条数"
+              @commit="(v) => change('appearance', 'preview_visible_rows', v)"
+            />
+          </div>
+          <div class="card row-card">
+            <div class="row-main">
+              <div class="row-title">预览显示模式</div>
+              <div class="row-desc">简洁模式隐藏插件标题区，保留状态和预览数据；自定义预览页可自行处理</div>
+            </div>
+            <div class="segmented">
+              <button
+                type="button"
+                :class="{ on: (settings.appearance.preview_display_mode ?? 'default') === 'default' }"
+                aria-label="默认预览显示模式"
+                @click="change('appearance', 'preview_display_mode', 'default')"
+              >默认</button>
+              <button
+                type="button"
+                :class="{ on: settings.appearance.preview_display_mode === 'compact' }"
+                aria-label="简洁预览显示模式"
+                @click="change('appearance', 'preview_display_mode', 'compact')"
+              >简洁</button>
+            </div>
+          </div>
+          <div class="card row-card preview-width-card">
+            <div class="row-main">
+              <div class="row-title">预览卡片宽度</div>
+              <div class="row-desc">
+                {{ settings.appearance.preview_width == null ? '跟随插件清单默认宽度；自定义插件页由插件控制' : `${settings.appearance.preview_width} px（仅宿主表格预览）` }}
+              </div>
+            </div>
+            <div class="preview-width-controls">
+              <div class="segmented">
+                <button
+                  type="button"
+                  :class="{ on: settings.appearance.preview_width == null }"
+                  aria-label="预览卡片宽度跟随插件默认值"
+                  @click="change('appearance', 'preview_width', null)"
+                >跟随插件</button>
+                <button
+                  type="button"
+                  :class="{ on: settings.appearance.preview_width != null }"
+                  aria-label="自定义预览卡片宽度"
+                  @click="change('appearance', 'preview_width', settings.appearance.preview_width ?? 280)"
+                >自定义</button>
+              </div>
+              <RangeSlider
+                v-if="settings.appearance.preview_width != null"
+                :model-value="settings.appearance.preview_width"
+                :min="240"
+                :max="480"
+                :step="20"
+                :format="fmtPx"
+                aria-label="预览卡片宽度"
+                @commit="(v) => change('appearance', 'preview_width', v)"
+              />
+            </div>
           </div>
           <div class="card row-card opacity-reset-card">
             <div class="row-main">
@@ -1518,14 +1613,14 @@ onUnmounted(() => {
                 <div v-if="pluginPermissionsById[p.id].permissions.length" class="permission-items">
                   <div v-for="permission in pluginPermissionsById[p.id].permissions" :key="permission.id" class="permission-row">
                     <div class="row-main">
-                      <div class="row-title">{{ permission.label }}</div>
+                      <div class="row-title">{{ permission.label }} <span v-if="permission.required" class="permission-required">必需</span></div>
                       <div class="row-desc">{{ permission.description }}</div>
                     </div>
                     <Switch
-                      v-if="permission.enforceable"
-                      :model-value="permissionIsGranted(p.id, permission.id)"
+                      v-if="permission.enforceable || permission.required"
+                      :model-value="permission.required || permissionIsGranted(p.id, permission.id)"
                       :aria-label="`${p.name}：${permission.label}`"
-                      :disabled="permissionSaving[`${p.id}:${permission.id}`]"
+                      :disabled="permission.required || permissionSaving[`${p.id}:${permission.id}`]"
                       @update:model-value="changePluginPermission(p.id, permission.id, $event)"
                     />
                     <span v-else class="permission-uncontrolled">宿主无法拦截</span>
@@ -2188,6 +2283,19 @@ kbd {
 .permission-row:first-child { border-top: 0; }
 .permission-row .row-title { font-size: 12px; }
 .permission-row .row-desc { font-size: 10.5px; line-height: 1.35; }
+.permission-required {
+  display: inline-block;
+  margin-left: 5px;
+  padding: 1px 5px;
+  border: 1px solid color-mix(in srgb, var(--warning, #f59e0b) 40%, transparent);
+  border-radius: 999px;
+  color: var(--warning, #d97706);
+  font-size: 9px;
+  font-weight: 600;
+  vertical-align: 1px;
+}
+.preview-width-card { align-items: flex-start; }
+.preview-width-controls { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 10px; }
 .permission-uncontrolled { flex: none; color: var(--text-muted); font-size: 10.5px; }
 .permission-message {
   padding: 9px 3px 3px;
