@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import Button from '@/components/ui/button/Button.vue'
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from 'vue'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import Icon from '../ui/Icon.vue'
-import ControlCenterView from '../views/ControlCenterView.vue'
+const ControlCenterView = defineAsyncComponent(() => import('../views/ControlCenterView.vue'))
 import DetailView from '../views/DetailView.vue'
 import SkinSurfaceHost from '../views/SkinSurfaceHost.vue'
 import { closeDetail, EVENTS, getMainSurface } from '../lib/api'
@@ -234,7 +234,24 @@ onUnmounted(() => {
   width: 100%;
   height: 100%;
   overflow: hidden;
+  border-radius: var(--radius-lg, 10px);
   background: transparent;
+}
+
+.detail-shell::before {
+  content: '';
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  border-radius: inherit;
+  background-image: var(--app-wallpaper-image, none);
+  background-size: var(--app-wallpaper-size, cover);
+  background-position: center;
+  background-repeat: no-repeat;
+  filter: blur(var(--app-wallpaper-blur, 0px));
+  opacity: var(--app-wallpaper-opacity, 0);
+  pointer-events: none;
+  transform: scale(1.025);
 }
 
 .detail-shell.plugin-detail-shell {
@@ -246,6 +263,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  border-radius: var(--radius-lg, 10px);
   background: transparent;
   color: var(--text);
 }
@@ -255,11 +273,15 @@ onUnmounted(() => {
   position: absolute;
   inset: 0;
   z-index: 0;
-  background-image: var(--detail-image, none);
-  background-size: cover;
+  border-radius: inherit;
+  background-image: var(--app-wallpaper-image, var(--detail-image, none));
+  background-size: var(--app-wallpaper-size, cover);
   background-position: center;
-  opacity: var(--detail-image-opacity, 1);
+  background-repeat: no-repeat;
+  filter: blur(var(--app-wallpaper-blur, 0px));
+  opacity: var(--app-wallpaper-opacity, var(--detail-image-opacity, 1));
   pointer-events: none;
+  transform: scale(1.025);
 }
 
 .control-surface::after {

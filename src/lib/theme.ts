@@ -147,10 +147,8 @@ function applyAppBackgroundImage(background: {
       root.style.setProperty('--detail-shell-overlay', 'transparent')
       // Use the app-wide wallpaper in place of the skin's separate detail wallpaper layer.
       root.style.setProperty('--detail-image', 'none')
-      root.style.removeProperty('--rail-image')
     } else if (isSidebarSurface) {
       // Use the app-wide wallpaper in place of the skin's separate sidebar wallpaper layer.
-      root.style.setProperty('--rail-image', 'none')
       root.style.removeProperty('--detail-shell-overlay')
       root.style.removeProperty('--detail-image')
     }

@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import Button from '@/components/ui/button/Button.vue'
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from 'vue'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import Icon from '../ui/Icon.vue'
 import { closeDetail } from '../lib/api'
-import SettingsView from './SettingsView.vue'
-import PluginCenterView from './PluginCenterView.vue'
-import SkinCenterView from './SkinCenterView.vue'
+const SettingsView = defineAsyncComponent(() => import('./SettingsView.vue'))
+const PluginCenterView = defineAsyncComponent(() => import('./PluginCenterView.vue'))
+const SkinCenterView = defineAsyncComponent(() => import('./SkinCenterView.vue'))
 // Legacy filename retained while this component becomes the generic plugin detail host.
 import PluginDetailHostView from './UserPluginHostView.vue'
 import { pluginRegistryList } from '../lib/marketApi'

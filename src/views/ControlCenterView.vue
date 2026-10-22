@@ -336,7 +336,7 @@ const activeSkinId = computed(() => settingsRef.value?.appearance.skin ?? 'defau
 const opacityControls = computed(() => {
   const controls: { key: OpacitySettingKey; label: string; description: string }[] = [
     { key: 'sidebar_panel_opacity', label: '侧边栏面板不透明度', description: '只调面板底色，图标与文字保持清晰' },
-    { key: 'sidebar_image_opacity', label: '侧边栏背景图片不透明度', description: '单独调节皮肤背景图片' },
+    { key: 'sidebar_image_opacity', label: '侧边栏背景图片不透明度', description: '调节侧边栏皮肤图或自定义背景图片的显示强度' },
     { key: 'preview_panel_opacity', label: '预览页面板不透明度', description: '调整预览面板及宿主绘制卡片、条目的底色，不影响文字' },
     { key: 'preview_image_opacity', label: '预览页背景图片不透明度', description: '单独调整预览窗口背景图片的显示强度' }
   ]

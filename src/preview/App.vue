@@ -538,6 +538,8 @@ onUnmounted(() => {
 }
 
 .preview-card {
+  position: relative;
+  isolation: isolate;
   width: 100%;
   height: 100%;
   box-sizing: border-box;
@@ -554,6 +556,27 @@ onUnmounted(() => {
   gap: 8px;
   animation: card-appear 0.18s cubic-bezier(0.16, 1, 0.3, 1);
   overflow: hidden;
+}
+
+.preview-card::before {
+  content: '';
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  border-radius: inherit;
+  background-image: var(--app-wallpaper-image, none);
+  background-size: var(--app-wallpaper-size, cover);
+  background-position: center;
+  background-repeat: no-repeat;
+  filter: blur(var(--app-wallpaper-blur, 0px));
+  opacity: var(--app-wallpaper-opacity, 0);
+  pointer-events: none;
+  transform: scale(1.025);
+}
+
+.preview-card > * {
+  position: relative;
+  z-index: 1;
 }
 
 .preview-card.is-custom {

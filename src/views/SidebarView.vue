@@ -204,7 +204,7 @@ const railStyle = computed(() => {
     '--component-opacity': String(props.appearance.component_opacity),
     borderRadius: props.appearance.sidebar_position === 'top'
       ? `${Math.round(props.appearance.collapsed_width / 2) - 2}px`
-      : '16px'
+      : '24px'
   }
 })
 
@@ -330,6 +330,7 @@ onUnmounted(() => {
   padding: 12px 0;
   margin: auto;
   position: relative;
+  overflow: hidden;
   background-color: transparent;
   border: 1px solid rgba(255, 255, 255, 0.07);
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
@@ -345,11 +346,14 @@ onUnmounted(() => {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background-image: var(--rail-image, none);
-  background-size: cover;
+  background-image: var(--app-wallpaper-image, var(--rail-image, none));
+  background-size: var(--app-wallpaper-size, cover);
   background-position: center;
-  opacity: var(--rail-img-opacity, 1);
+  background-repeat: no-repeat;
+  filter: blur(var(--app-wallpaper-blur, 0px));
+  opacity: var(--rail-img-opacity, var(--app-wallpaper-opacity, 1));
   z-index: 0;
+  transform: scale(1.025);
 }
 .rail::after {
   content: '';
@@ -547,7 +551,7 @@ onUnmounted(() => {
   gap: 12px;
   padding: 8px 0;
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: 24px;
   background: transparent;
   box-shadow: 0 8px 24px rgb(0 0 0 / 14%);
   backdrop-filter: blur(18px) saturate(140%);

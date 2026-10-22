@@ -2124,32 +2124,23 @@ pub(crate) fn plugin_call_blocking(
         return market::web_plugin_call(app, request);
     }
     let state = host(app);
-    let mut managers = state.plugin_manager.lock().unwrap();
-    let manager = managers
-        .as_mut()
-        .ok_or_else(|| "plugin runtime is not initialized".to_string())?;
+    let plugin_id = request.plugin_id.clone();
+    let executor = {
+        let mut managers = state.plugin_manager.lock().unwrap();
+        let manager = managers
+            .as_mut()
+            .ok_or_else(|| "plugin runtime is not initialized".to_string())?;
+        ensure_native_plugin_backend(app, manager, &plugin_id)?;
+        manager
+            .executor(&plugin_id)
+            .map_err(|error| error.as_plugin_error().message)?
+    };
 
-    ensure_native_plugin_backend(app, manager, &request.plugin_id)?;
-    let should_activate = matches!(
-        &request.kind,
-        sideweave_plugin_api::PluginRequestKind::Call
-            | sideweave_plugin_api::PluginRequestKind::GetInfo
-    ) && manager
-        .registry()
-        .get(&request.plugin_id)
-        .is_some_and(|info| matches!(&info.status, PluginStatus::Discovered))
-        && manager.backend_loaded(&request.plugin_id);
-    if should_activate {
-        let response = manager
-            .activate(&request.plugin_id)
-            .map_err(|error| error.as_plugin_error().message)?;
-        if !response.ok {
-            return Ok(response);
-        }
+    let response = executor.call_with_auto_activate(request);
+    if let Some(manager) = state.plugin_manager.lock().unwrap().as_mut() {
+        manager.sync_plugin_status(&plugin_id);
     }
-    manager
-        .call(request)
-        .map_err(|error| error.as_plugin_error().message)
+    response.map_err(|error| error.as_plugin_error().message)
 }
 
 fn ensure_native_plugin_backend(
@@ -2216,13 +2207,32 @@ fn unload_plugin_for_package_change<R: tauri::Runtime>(
 ) -> Result<(), String> {
     let plugin_id = sideweave_plugin_api::PluginId::new(id).map_err(|error| error.to_string())?;
     let host_state = host(app);
-    let mut manager = host_state.plugin_manager.lock().unwrap();
-    if let Some(manager) = manager.as_mut() {
+    let executor = {
+        let mut managers = host_state.plugin_manager.lock().unwrap();
+        let Some(manager) = managers.as_mut() else {
+            return Ok(());
+        };
         manager
-            .unload(&plugin_id)
-            .map_err(|error| error.as_plugin_error().message)?;
+            .begin_unload(&plugin_id)
+            .map_err(|error| error.as_plugin_error().message)?
+    };
+    let Some(executor) = executor else {
+        return Ok(());
+    };
+    let shutdown_result = executor.shutdown_for_unload();
+    let preserve_entry = matches!(
+        &shutdown_result,
+        Err(sideweave_plugin_runtime::RuntimeError::Host(_))
+    );
+    let result = shutdown_result.map_err(|error| error.as_plugin_error().message);
+    if let Some(manager) = host_state.plugin_manager.lock().unwrap().as_mut() {
+        if preserve_entry {
+            manager.cancel_unload(&plugin_id);
+        } else {
+            manager.finish_unload(&plugin_id);
+        }
     }
-    Ok(())
+    result
 }
 
 fn load_runtime_plugins(plugin_manager: &mut PluginManager, data_dir: &Path) -> Result<(), String> {

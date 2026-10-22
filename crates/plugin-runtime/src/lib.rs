@@ -7,7 +7,8 @@ use sideweave_plugin_api::{
 };
 use sideweave_plugin_sdk::{lifecycle_request, HostServices, Plugin, PluginContext};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 #[cfg(windows)]
 mod dylib;
@@ -20,9 +21,40 @@ pub struct PluginRegistry {
 }
 
 struct RegistryEntry {
-    plugin: Option<Box<dyn Plugin>>,
-    external: Option<Box<dyn ExternalPlugin>>,
+    backend: Arc<Mutex<PluginBackendState>>,
+    loaded: Arc<AtomicBool>,
+    closing: Arc<AtomicBool>,
     info: PluginInfo,
+}
+
+enum PluginBackend {
+    Unloaded,
+    InProcess(Box<dyn Plugin>),
+    External(Box<dyn ExternalPlugin>),
+}
+
+struct PluginBackendState {
+    backend: PluginBackend,
+    status: PluginStatus,
+    last_error: Option<PluginError>,
+}
+
+impl PluginBackendState {
+    fn new(backend: PluginBackend) -> Self {
+        Self {
+            backend,
+            status: PluginStatus::Discovered,
+            last_error: None,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct PluginExecutor {
+    id: PluginId,
+    backend: Arc<Mutex<PluginBackendState>>,
+    closing: Arc<AtomicBool>,
+    services: Arc<dyn HostServices>,
 }
 
 pub trait ExternalPlugin: Send {
@@ -30,6 +62,127 @@ pub trait ExternalPlugin: Send {
 
     fn shutdown(&mut self) -> Result<(), PluginError> {
         Ok(())
+    }
+}
+
+impl PluginExecutor {
+    pub fn call(&self, request: PluginRequest) -> Result<PluginResponse, RuntimeError> {
+        request
+            .validate_for(&self.id)
+            .map_err(RuntimeError::Protocol)?;
+        let mut state = self
+            .backend
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if self.closing.load(Ordering::Acquire) {
+            return Err(RuntimeError::Unavailable(self.id.clone()));
+        }
+        let response = Self::invoke(&self.id, &self.services, &mut state, &request)?;
+        Self::update_lifecycle_state(&mut state, &request, &response);
+        Ok(response)
+    }
+
+    pub fn call_with_auto_activate(
+        &self,
+        request: PluginRequest,
+    ) -> Result<PluginResponse, RuntimeError> {
+        request
+            .validate_for(&self.id)
+            .map_err(RuntimeError::Protocol)?;
+        let mut state = self
+            .backend
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if self.closing.load(Ordering::Acquire) {
+            return Err(RuntimeError::Unavailable(self.id.clone()));
+        }
+        if matches!(
+            &request.kind,
+            PluginRequestKind::Call | PluginRequestKind::GetInfo
+        ) && matches!(&state.status, PluginStatus::Discovered)
+            && !matches!(&state.backend, PluginBackend::Unloaded)
+        {
+            let activate = lifecycle_request(self.id.clone(), PluginRequestKind::Activate);
+            let response = Self::invoke(&self.id, &self.services, &mut state, &activate)?;
+            Self::update_lifecycle_state(&mut state, &activate, &response);
+            if !response.ok {
+                return Ok(response);
+            }
+        }
+        let response = Self::invoke(&self.id, &self.services, &mut state, &request)?;
+        Self::update_lifecycle_state(&mut state, &request, &response);
+        Ok(response)
+    }
+
+    pub fn shutdown_for_unload(&self) -> Result<(), RuntimeError> {
+        let mut state = self
+            .backend
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        self.services
+            .windows()
+            .close_plugin_windows(&self.id)
+            .map_err(|error| RuntimeError::Host(error.message))?;
+        let _ = self.services.shortcuts().unregister(&self.id);
+        if matches!(&state.backend, PluginBackend::External(_)) {
+            if let PluginBackend::External(external) = &mut state.backend {
+                external.shutdown().map_err(RuntimeError::External)
+            } else {
+                unreachable!()
+            }
+        } else if matches!(&state.backend, PluginBackend::InProcess(_)) {
+            let request = lifecycle_request(self.id.clone(), PluginRequestKind::Shutdown);
+            let response = Self::invoke(&self.id, &self.services, &mut state, &request)?;
+            Self::update_lifecycle_state(&mut state, &request, &response);
+            Ok(())
+        } else {
+            Ok(())
+        }
+    }
+
+    fn invoke(
+        id: &PluginId,
+        services: &Arc<dyn HostServices>,
+        state: &mut PluginBackendState,
+        request: &PluginRequest,
+    ) -> Result<PluginResponse, RuntimeError> {
+        let context = PluginContext::new(id.clone(), Arc::clone(services));
+        let response = match &mut state.backend {
+            PluginBackend::InProcess(plugin) => plugin.handle(request.clone(), &context),
+            PluginBackend::External(external) => external
+                .call(request.clone())
+                .map_err(RuntimeError::External)?,
+            PluginBackend::Unloaded => return Err(RuntimeError::Unavailable(id.clone())),
+        };
+        if response.request_id != request.request_id || response.plugin_id != request.plugin_id {
+            return Err(RuntimeError::Protocol(
+                sideweave_plugin_api::ProtocolError::InvalidRequest(
+                    "plugin response does not match request".into(),
+                ),
+            ));
+        }
+        Ok(response)
+    }
+
+    fn update_lifecycle_state(
+        state: &mut PluginBackendState,
+        request: &PluginRequest,
+        response: &PluginResponse,
+    ) {
+        let next_status = match &request.kind {
+            PluginRequestKind::Activate => Some(PluginStatus::Active),
+            PluginRequestKind::Deactivate => Some(PluginStatus::Disabled),
+            PluginRequestKind::Shutdown => Some(PluginStatus::Stopped),
+            PluginRequestKind::Call | PluginRequestKind::GetInfo => None,
+        };
+        if let Some(status) = next_status {
+            state.status = if response.ok {
+                status
+            } else {
+                PluginStatus::Failed
+            };
+            state.last_error = response.error.clone();
+        }
     }
 }
 
@@ -58,8 +211,11 @@ impl PluginRegistry {
         self.entries.insert(
             id,
             RegistryEntry {
-                plugin: Some(plugin),
-                external: None,
+                backend: Arc::new(Mutex::new(PluginBackendState::new(
+                    PluginBackend::InProcess(plugin),
+                ))),
+                loaded: Arc::new(AtomicBool::new(true)),
+                closing: Arc::new(AtomicBool::new(false)),
                 info,
             },
         );
@@ -92,8 +248,11 @@ impl PluginRegistry {
         self.entries.insert(
             id,
             RegistryEntry {
-                plugin: None,
-                external: Some(external),
+                backend: Arc::new(Mutex::new(PluginBackendState::new(
+                    PluginBackend::External(external),
+                ))),
+                loaded: Arc::new(AtomicBool::new(true)),
+                closing: Arc::new(AtomicBool::new(false)),
                 info: PluginInfo {
                     manifest,
                     status: PluginStatus::Discovered,
@@ -125,8 +284,11 @@ impl PluginRegistry {
         self.entries.insert(
             id,
             RegistryEntry {
-                plugin: Some(plugin),
-                external: None,
+                backend: Arc::new(Mutex::new(PluginBackendState::new(
+                    PluginBackend::InProcess(plugin),
+                ))),
+                loaded: Arc::new(AtomicBool::new(true)),
+                closing: Arc::new(AtomicBool::new(false)),
                 info: PluginInfo {
                     runtime: manifest.runtime.clone(),
                     manifest,
@@ -166,8 +328,9 @@ impl PluginRegistry {
         self.entries.insert(
             id,
             RegistryEntry {
-                plugin: None,
-                external: None,
+                backend: Arc::new(Mutex::new(PluginBackendState::new(PluginBackend::Unloaded))),
+                loaded: Arc::new(AtomicBool::new(false)),
+                closing: Arc::new(AtomicBool::new(false)),
                 info: PluginInfo {
                     manifest,
                     status: PluginStatus::Discovered,
@@ -276,14 +439,18 @@ impl PluginManager {
             .registry
             .get_mut(id)
             .ok_or_else(|| RuntimeError::NotFound(id.clone()))?;
+        let mut backend = entry
+            .backend
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         if entry.info.runtime != sideweave_plugin_api::PluginRuntime::ExternalProcess
             || entry.info.effective_trust != PluginTrust::TrustedLocal
-            || entry.external.is_some()
-            || entry.plugin.is_some()
+            || !matches!(backend.backend, PluginBackend::Unloaded)
         {
             return Err(RuntimeError::Unavailable(id.clone()));
         }
-        entry.external = Some(external);
+        backend.backend = PluginBackend::External(external);
+        entry.loaded.store(true, Ordering::Release);
         Ok(())
     }
 
@@ -308,11 +475,14 @@ impl PluginManager {
             .registry
             .get_mut(&id)
             .ok_or_else(|| RuntimeError::NotFound(id.clone()))?;
+        let mut backend = entry
+            .backend
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         if manifest.runtime != sideweave_plugin_api::PluginRuntime::DynamicLibrary
             || entry.info.runtime != sideweave_plugin_api::PluginRuntime::DynamicLibrary
             || entry.info.effective_trust != PluginTrust::TrustedLocal
-            || entry.plugin.is_some()
-            || entry.external.is_some()
+            || !matches!(backend.backend, PluginBackend::Unloaded)
         {
             return Err(RuntimeError::Unavailable(id));
         }
@@ -322,7 +492,8 @@ impl PluginManager {
         manifest.required_permissions = entry.info.manifest.required_permissions.clone();
         manifest.validate().map_err(RuntimeError::Protocol)?;
         entry.info.manifest = manifest;
-        entry.plugin = Some(plugin);
+        backend.backend = PluginBackend::InProcess(plugin);
+        entry.loaded.store(true, Ordering::Release);
         Ok(())
     }
 
@@ -330,10 +501,48 @@ impl PluginManager {
         self.registry
             .entries
             .get(id)
-            .is_some_and(|entry| entry.plugin.is_some() || entry.external.is_some())
+            .is_some_and(|entry| entry.loaded.load(Ordering::Acquire))
+    }
+
+    pub fn executor(&self, id: &PluginId) -> Result<PluginExecutor, RuntimeError> {
+        let entry = self
+            .registry
+            .entries
+            .get(id)
+            .ok_or_else(|| RuntimeError::NotFound(id.clone()))?;
+        Ok(PluginExecutor {
+            id: id.clone(),
+            backend: Arc::clone(&entry.backend),
+            closing: Arc::clone(&entry.closing),
+            services: Arc::clone(&self.services),
+        })
+    }
+
+    pub fn sync_plugin_status(&mut self, id: &PluginId) {
+        let Some(entry) = self.registry.entries.get_mut(id) else {
+            return;
+        };
+        let Ok(backend) = entry.backend.try_lock() else {
+            return;
+        };
+        entry.info.status = backend.status.clone();
+        entry.info.last_error = backend.last_error.clone();
     }
 
     pub fn unload(&mut self, id: &PluginId) -> Result<(), RuntimeError> {
+        let Some(executor) = self.begin_unload(id)? else {
+            return Ok(());
+        };
+        let result = executor.shutdown_for_unload();
+        if matches!(&result, Err(RuntimeError::Host(_))) {
+            self.cancel_unload(id);
+        } else {
+            self.finish_unload(id);
+        }
+        result
+    }
+
+    pub fn begin_unload(&mut self, id: &PluginId) -> Result<Option<PluginExecutor>, RuntimeError> {
         let should_unload = self
             .registry
             .get(id)
@@ -346,39 +555,25 @@ impl PluginManager {
             })
             .unwrap_or(false);
         if !should_unload {
-            return Ok(());
+            return Ok(None);
         }
-        let backend_loaded = self
-            .registry
-            .entries
-            .get(id)
-            .is_some_and(|entry| entry.plugin.is_some() || entry.external.is_some());
-        if !backend_loaded {
-            self.registry.remove(id);
-            return Ok(());
+        let executor = self.executor(id)?;
+        if let Some(entry) = self.registry.entries.get(id) {
+            if entry.closing.swap(true, Ordering::AcqRel) {
+                return Err(RuntimeError::Unavailable(id.clone()));
+            }
         }
-        self.services
-            .windows()
-            .close_plugin_windows(id)
-            .map_err(|error| RuntimeError::Host(error.message))?;
-        let _ = self.services.shortcuts().unregister(id);
-        let result = if self
-            .registry
-            .get(id)
-            .is_some_and(|info| {
-                info.runtime == sideweave_plugin_api::PluginRuntime::ExternalProcess
-            })
-        {
-            self.registry
-                .get_mut(id)
-                .and_then(|entry| entry.external.as_mut())
-                .ok_or_else(|| RuntimeError::Unavailable(id.clone()))
-                .and_then(|external| external.shutdown().map_err(RuntimeError::External))
-        } else {
-            self.shutdown(id).map(|_| ())
-        };
+        Ok(Some(executor))
+    }
+
+    pub fn finish_unload(&mut self, id: &PluginId) {
         self.registry.remove(id);
-        result
+    }
+
+    pub fn cancel_unload(&mut self, id: &PluginId) {
+        if let Some(entry) = self.registry.entries.get(id) {
+            entry.closing.store(false, Ordering::Release);
+        }
     }
 
     pub fn unload_installed(&mut self) -> Result<(), RuntimeError> {
@@ -403,76 +598,35 @@ impl PluginManager {
 
     pub fn activate(&mut self, id: &PluginId) -> Result<PluginResponse, RuntimeError> {
         let request = lifecycle_request(id.clone(), PluginRequestKind::Activate);
-        self.dispatch(id, request, PluginStatus::Active)
+        self.dispatch(id, request)
     }
 
     pub fn deactivate(&mut self, id: &PluginId) -> Result<PluginResponse, RuntimeError> {
         let request = lifecycle_request(id.clone(), PluginRequestKind::Deactivate);
-        self.dispatch(id, request, PluginStatus::Disabled)
+        self.dispatch(id, request)
     }
 
     pub fn shutdown(&mut self, id: &PluginId) -> Result<PluginResponse, RuntimeError> {
         let request = lifecycle_request(id.clone(), PluginRequestKind::Shutdown);
-        self.dispatch(id, request, PluginStatus::Stopped)
+        self.dispatch(id, request)
     }
 
     pub fn call(&mut self, request: PluginRequest) -> Result<PluginResponse, RuntimeError> {
         let id = request.plugin_id.clone();
         request.validate_for(&id).map_err(RuntimeError::Protocol)?;
-        match request.kind.clone() {
-            PluginRequestKind::Activate => self.dispatch(&id, request, PluginStatus::Active),
-            PluginRequestKind::Deactivate => self.dispatch(&id, request, PluginStatus::Disabled),
-            PluginRequestKind::Shutdown => self.dispatch(&id, request, PluginStatus::Stopped),
-            PluginRequestKind::Call | PluginRequestKind::GetInfo => {
-                self.dispatch_request(&id, request)
-            }
-        }
+        let executor = self.executor(&id)?;
+        let response = executor.call(request)?;
+        self.sync_plugin_status(&id);
+        Ok(response)
     }
 
     fn dispatch(
         &mut self,
         id: &PluginId,
         request: PluginRequest,
-        status: PluginStatus,
     ) -> Result<PluginResponse, RuntimeError> {
-        let response = self.dispatch_request(id, request)?;
-        if let Some(entry) = self.registry.get_mut(id) {
-            entry.info.status = if response.ok {
-                status
-            } else {
-                PluginStatus::Failed
-            };
-            entry.info.last_error = response.error.clone();
-        }
-        Ok(response)
-    }
-
-    fn dispatch_request(
-        &mut self,
-        id: &PluginId,
-        request: PluginRequest,
-    ) -> Result<PluginResponse, RuntimeError> {
-        let entry = self
-            .registry
-            .get_mut(id)
-            .ok_or_else(|| RuntimeError::NotFound(id.clone()))?;
-        let context = PluginContext::new(id.clone(), Arc::clone(&self.services));
-        let response = if let Some(plugin) = entry.plugin.as_mut() {
-            plugin.handle(request.clone(), &context)
-        } else if let Some(external) = entry.external.as_mut() {
-            external
-                .call(request.clone())
-                .map_err(RuntimeError::External)?
-        } else {
-            return Err(RuntimeError::Unavailable(id.clone()));
-        };
-        if response.request_id != request.request_id || response.plugin_id != request.plugin_id {
-            return Err(RuntimeError::Protocol(
-                sideweave_plugin_api::ProtocolError::InvalidRequest(
-                    "plugin response does not match request".into(),
-                ),
-            ));
-        }
+        let response = self.executor(id)?.call(request)?;
+        self.sync_plugin_status(id);
         Ok(response)
     }
 
@@ -573,6 +727,7 @@ impl RuntimeError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::{json, Value};
     use sideweave_plugin_api::{
         PluginHandshake, PluginManifest, PluginRuntime, PluginUi, API_VERSION, MANIFEST_VERSION,
     };
@@ -581,7 +736,7 @@ mod tests {
         NotificationService, ShortcutAction, ShortcutHandler, StorageService, SystemService,
         WindowService,
     };
-    use serde_json::{json, Value};
+    use std::time::Duration;
 
     struct TestServices;
 
@@ -793,6 +948,73 @@ mod tests {
         }
     }
 
+    struct DelayPlugin {
+        manifest: PluginManifest,
+        delay: Duration,
+        started: Option<std::sync::mpsc::Sender<()>>,
+        release: Option<std::sync::mpsc::Receiver<()>>,
+        active_calls: Arc<std::sync::atomic::AtomicUsize>,
+        max_active_calls: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    impl Plugin for DelayPlugin {
+        fn manifest(&self) -> &PluginManifest {
+            &self.manifest
+        }
+
+        fn handle(&mut self, request: PluginRequest, _context: &PluginContext) -> PluginResponse {
+            if let Some(started) = self.started.take() {
+                let _ = started.send(());
+            }
+            let active = self.active_calls.fetch_add(1, Ordering::SeqCst) + 1;
+            self.max_active_calls.fetch_max(active, Ordering::SeqCst);
+            if let Some(release) = self.release.take() {
+                let _ = release.recv();
+            } else {
+                std::thread::sleep(self.delay);
+            }
+            self.active_calls.fetch_sub(1, Ordering::SeqCst);
+            PluginResponse {
+                request_id: request.request_id,
+                plugin_id: request.plugin_id,
+                ok: true,
+                result: Value::Null,
+                error: None,
+            }
+        }
+    }
+
+    fn delay_plugin(
+        id: &str,
+        delay: Duration,
+        started: Option<std::sync::mpsc::Sender<()>>,
+        release: Option<std::sync::mpsc::Receiver<()>>,
+        active_calls: Arc<std::sync::atomic::AtomicUsize>,
+        max_active_calls: Arc<std::sync::atomic::AtomicUsize>,
+    ) -> DelayPlugin {
+        let mut manifest = test_plugin().manifest;
+        manifest.id = PluginId::new(id).unwrap();
+        DelayPlugin {
+            manifest,
+            delay,
+            started,
+            release,
+            active_calls,
+            max_active_calls,
+        }
+    }
+
+    fn call_request(id: &PluginId, request_id: &str) -> PluginRequest {
+        PluginRequest {
+            request_id: request_id.into(),
+            plugin_id: id.clone(),
+            kind: PluginRequestKind::Call,
+            method: Some("ping".into()),
+            payload: Value::Null,
+            timeout_ms: None,
+        }
+    }
+
     #[test]
     fn lifecycle_and_call_share_registry_state() {
         let mut manager = PluginManager::new(Arc::new(TestServices));
@@ -820,6 +1042,101 @@ mod tests {
             })
             .unwrap();
         assert_eq!(response.result["method"], "ping");
+    }
+
+    #[test]
+    fn plugin_executors_allow_parallel_plugins_and_serialize_each_plugin() {
+        let mut manager = PluginManager::new(Arc::new(TestServices));
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let slow_active = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let slow_max = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let fast_active = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let fast_max = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let slow_id = PluginId::new("slow-plugin").unwrap();
+        let fast_id = PluginId::new("fast-plugin").unwrap();
+        manager
+            .register(
+                Box::new(delay_plugin(
+                    "slow-plugin",
+                    Duration::ZERO,
+                    Some(started_tx),
+                    Some(release_rx),
+                    Arc::clone(&slow_active),
+                    Arc::clone(&slow_max),
+                )),
+                "test",
+            )
+            .unwrap();
+        manager
+            .register(
+                Box::new(delay_plugin(
+                    "fast-plugin",
+                    Duration::ZERO,
+                    None,
+                    None,
+                    Arc::clone(&fast_active),
+                    Arc::clone(&fast_max),
+                )),
+                "test",
+            )
+            .unwrap();
+        let slow = manager.executor(&slow_id).unwrap();
+        let fast = manager.executor(&fast_id).unwrap();
+        let slow_thread =
+            std::thread::spawn(move || slow.call(call_request(&slow_id, "slow-call")).unwrap());
+        started_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("slow plugin should start");
+
+        let (fast_done_tx, fast_done_rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let result = fast.call(call_request(&fast_id, "fast-call"));
+            let _ = fast_done_tx.send(result);
+        });
+        assert!(
+            fast_done_rx
+                .recv_timeout(Duration::from_secs(1))
+                .expect("fast plugin should not wait for the slow plugin")
+                .unwrap()
+                .ok
+        );
+        release_tx.send(()).unwrap();
+        assert!(slow_thread.join().unwrap().ok);
+
+        let same_id = PluginId::new("same-plugin").unwrap();
+        let same_active = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let same_max = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        manager
+            .register(
+                Box::new(delay_plugin(
+                    "same-plugin",
+                    Duration::from_millis(40),
+                    None,
+                    None,
+                    Arc::clone(&same_active),
+                    Arc::clone(&same_max),
+                )),
+                "test",
+            )
+            .unwrap();
+        let same = manager.executor(&same_id).unwrap();
+        let barrier = Arc::new(std::sync::Barrier::new(3));
+        let mut workers = Vec::new();
+        for request_id in ["same-a", "same-b"] {
+            let executor = same.clone();
+            let barrier = Arc::clone(&barrier);
+            let id = same_id.clone();
+            workers.push(std::thread::spawn(move || {
+                barrier.wait();
+                executor.call(call_request(&id, request_id)).unwrap()
+            }));
+        }
+        barrier.wait();
+        for worker in workers {
+            assert!(worker.join().unwrap().ok);
+        }
+        assert_eq!(same_max.load(Ordering::SeqCst), 1);
     }
 
     #[test]
@@ -885,7 +1202,10 @@ mod tests {
             .join("target")
             .join("debug")
             .join("sideweave_plugin_bookmarks.dll");
-        assert!(library.is_file(), "build the bookmarks DLL before this test");
+        assert!(
+            library.is_file(),
+            "build the bookmarks DLL before this test"
+        );
         let id = PluginId::new("bookmarks").unwrap();
         let manifest = PluginManifest {
             manifest_version: MANIFEST_VERSION,

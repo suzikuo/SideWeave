@@ -132,21 +132,6 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-body::before {
-  position: fixed;
-  z-index: 0;
-  inset: 0;
-  background-image: var(--app-wallpaper-image, none);
-  background-position: center;
-  background-repeat: no-repeat;
-  background-size: var(--app-wallpaper-size, cover);
-  content: '';
-  filter: blur(var(--app-wallpaper-blur, 0px));
-  opacity: var(--app-wallpaper-opacity, 0);
-  pointer-events: none;
-  transform: scale(1.025);
-}
-
 #app {
   position: relative;
   z-index: 1;

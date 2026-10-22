@@ -30,6 +30,7 @@ interface PluginEventPayload {
 const pluginSlots = reactive<PluginSlot[]>([])
 const activePluginId = ref<string>('')
 const frameRefs = new Map<string, HTMLIFrameElement>()
+const MAX_PLUGIN_IFRAMES = 4
 
 const loading = ref(false)
 const error = ref('')
@@ -142,12 +143,32 @@ function resolvePluginEntry(runtime: RuntimePluginInfo): { src: string; sameOrig
 
 const inFlightLoads = new Map<string, Promise<void>>()
 
+function touchPluginSlot(slot: PluginSlot) {
+  const index = pluginSlots.indexOf(slot)
+  if (index < 0 || index === pluginSlots.length - 1) return
+  pluginSlots.splice(index, 1)
+  pluginSlots.push(slot)
+}
+
+function evictOldestInactiveSlot(exceptPluginId: string) {
+  const index = pluginSlots.findIndex(
+    (slot) => slot.pluginId !== exceptPluginId && slot.lifecycleActive !== true
+  )
+  if (index < 0) return false
+  const [evicted] = pluginSlots.splice(index, 1)
+  if (evicted) {
+    frameRefs.delete(evicted.pluginId)
+  }
+  return true
+}
+
 async function loadPlugin(id: string) {
   if (!id) return
 
   // 1. 若已经在插槽池中，直接复用（0ms 瞬间切换）
   const existing = pluginSlots.find((s) => s.pluginId === id)
   if (existing) {
+    touchPluginSlot(existing)
     activePluginId.value = id
     syncPluginLifecycles()
     error.value = ''
@@ -195,13 +216,18 @@ async function loadPlugin(id: string) {
       if (!runtime) throw new Error(`插件未在运行时注册: ${id}`)
 
       const { src, sameOrigin } = resolvePluginEntry(runtime)
-      pluginSlots.push({
+      while (pluginSlots.length >= MAX_PLUGIN_IFRAMES) {
+        if (!evictOldestInactiveSlot(activePluginId.value)) break
+      }
+      const slot: PluginSlot = {
         pluginId: id,
         src,
         allowSameOrigin: sameOrigin,
         ready: false,
         lifecycleActive: null
-      })
+      }
+      if (activePluginId.value === id) pluginSlots.push(slot)
+      else pluginSlots.unshift(slot)
 
       clearFrameLoadTimer()
       frameLoadTimer = window.setTimeout(() => {
