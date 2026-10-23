@@ -2422,7 +2422,10 @@ async fn market_installed(app: AppHandle) -> market::InstalledLists {
 
 /// 安装/卸载后同步：广播设置变化（各窗口刷新插件清单）并重算轨道几何
 fn refresh_rail<R: tauri::Runtime>(app: &AppHandle<R>) {
-    let _ = app.emit("settings://changed", &host(app).settings_clone());
+    let settings = host(app).settings_clone();
+    let plugins = rail_metas(app, &settings);
+    let _ = app.emit("settings://changed", &settings);
+    let _ = app.emit("plugins://changed", &plugins);
     apply_sidebar(app);
 }
 

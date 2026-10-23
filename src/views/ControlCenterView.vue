@@ -43,7 +43,7 @@ import {
   pluginsRef,
   settingsRef
 } from '../lib/store'
-import type { PerformanceProfile, PerformanceStatusPayload, Settings } from '../lib/types'
+import type { PerformanceProfile, PerformanceStatusPayload, PluginMeta, Settings } from '../lib/types'
 
 // ---------- get_system_info 返回结构（对应 src-tauri lib.rs 的 SystemInfo，本地声明不改 lib/） ----------
 
@@ -487,6 +487,16 @@ function onDocumentVisibilityChange() {
 
 watch(() => props.active, syncSystemPolling, { immediate: true })
 
+let unlistenPluginsChanged: UnlistenFn | undefined
+onMounted(async () => {
+  unlistenPluginsChanged = await listen<PluginMeta[]>(EVENTS.pluginsChanged, (event) => {
+    pluginsRef.value = event.payload
+    void loadSystemInfo()
+    if (section.value === 'plugins') void loadPermissionPlugins()
+  }).catch(() => undefined)
+})
+onUnmounted(() => unlistenPluginsChanged?.())
+
 function loadControlDataOnce() {
   if (initialLoadDone || initialLoadPromise) return
   initialLoadPromise = (async () => {
@@ -575,19 +585,21 @@ async function togglePluginSidebar(id: string, visible: boolean) {
   }
 }
 
-async function movePlugin(id: string, dir: -1 | 1) {
-  const ids = pluginsRef.value.map((p) => p.id)
+const draggedPluginId = ref<string | null>(null)
+const dropTargetPluginId = ref<string | null>(null)
+const pluginOrderSaving = ref(false)
+
+function currentPluginOrder(): string[] {
+  const ids = pluginsRef.value.map((plugin) => plugin.id)
   const knownIds = new Set(ids)
-  // Drop retired plugins left in old settings, such as `gateway`.
-  const order = (settingsRef.value?.plugins.order ?? []).filter((pluginId) =>
-    knownIds.has(pluginId)
-  )
-  // 把当前完整顺序补齐（order 缺省的按现有展示顺序追加）
-  for (const pid of ids) if (!order.includes(pid)) order.push(pid)
-  const idx = order.indexOf(id)
-  const target = idx + dir
-  if (idx === -1 || target < 0 || target >= order.length) return
-  ;[order[idx], order[target]] = [order[target], order[idx]]
+  const order = (settingsRef.value?.plugins.order ?? []).filter((id) => knownIds.has(id))
+  for (const id of ids) if (!order.includes(id)) order.push(id)
+  return order
+}
+
+async function savePluginOrder(order: string[]) {
+  if (pluginOrderSaving.value) return
+  pluginOrderSaving.value = true
   try {
     pluginsRef.value = await setPluginOrder(order)
     if (settingsRef.value) {
@@ -598,7 +610,64 @@ async function movePlugin(id: string, dir: -1 | 1) {
     }
   } catch (e) {
     showToast(String(e), 'error')
+  } finally {
+    pluginOrderSaving.value = false
   }
+}
+
+function onPluginDragStart(event: DragEvent, id: string) {
+  if (pluginOrderSaving.value) {
+    event.preventDefault()
+    return
+  }
+  draggedPluginId.value = id
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', id)
+  }
+}
+
+function onPluginDragOver(event: DragEvent, id: string) {
+  if (!draggedPluginId.value || draggedPluginId.value === id || pluginOrderSaving.value) return
+  event.preventDefault()
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+  dropTargetPluginId.value = id
+}
+
+function onPluginDragLeave(event: DragEvent, id: string) {
+  const card = event.currentTarget as HTMLElement
+  if (event.relatedTarget instanceof Node && card.contains(event.relatedTarget)) return
+  if (dropTargetPluginId.value === id) dropTargetPluginId.value = null
+}
+
+function clearPluginDrag() {
+  draggedPluginId.value = null
+  dropTargetPluginId.value = null
+}
+
+function onPluginDrop(event: DragEvent, targetId: string) {
+  event.preventDefault()
+  const sourceId = draggedPluginId.value ?? event.dataTransfer?.getData('text/plain') ?? null
+  clearPluginDrag()
+  if (!sourceId || sourceId === targetId) return
+
+  const order = currentPluginOrder()
+  const sourceIndex = order.indexOf(sourceId)
+  const targetIndex = order.indexOf(targetId)
+  if (sourceIndex < 0 || targetIndex < 0) return
+  order.splice(sourceIndex, 1)
+  const insertionIndex = targetIndex - (sourceIndex < targetIndex ? 1 : 0)
+  order.splice(insertionIndex, 0, sourceId)
+  void savePluginOrder(order)
+}
+
+async function movePlugin(id: string, dir: -1 | 1) {
+  const order = currentPluginOrder()
+  const idx = order.indexOf(id)
+  const target = idx + dir
+  if (idx === -1 || target < 0 || target >= order.length) return
+  ;[order[idx], order[target]] = [order[target], order[idx]]
+  await savePluginOrder(order)
 }
 
 // ---------- 快捷操作 ----------
@@ -1556,8 +1625,30 @@ onUnmounted(() => {
       <template v-else-if="section === 'plugins'">
         <section>
           <h2>插件</h2>
-          <div v-for="(p, i) in pluginsRef" :key="p.id" class="card plugin-card">
+          <div
+            v-for="(p, i) in pluginsRef"
+            :key="p.id"
+            class="card plugin-card"
+            :class="{ 'plugin-card-dragging': draggedPluginId === p.id, 'plugin-card-drop-target': dropTargetPluginId === p.id }"
+            @dragover="onPluginDragOver($event, p.id)"
+            @dragleave="onPluginDragLeave($event, p.id)"
+            @drop="onPluginDrop($event, p.id)"
+          >
             <div class="plugin-row">
+              <button
+                class="plugin-drag-handle"
+                type="button"
+                draggable="true"
+                :disabled="pluginOrderSaving"
+                :aria-label="`拖动以调整 ${p.name} 的顺序`"
+                title="拖动调整顺序（方向键也可微调）"
+                @dragstart="onPluginDragStart($event, p.id)"
+                @dragend="clearPluginDrag"
+                @keydown.up.prevent="movePlugin(p.id, -1)"
+                @keydown.down.prevent="movePlugin(p.id, 1)"
+              >
+                <Icon name="grip-vertical" :size="17" />
+              </button>
               <div class="row-main">
                 <div class="row-title">
                   <span class="order-chip">{{ i + 1 }}</span>
@@ -1567,24 +1658,6 @@ onUnmounted(() => {
                 <div class="row-desc">{{ p.description }}</div>
               </div>
               <div class="row-side">
-                <Button variant="outline" size="sm"
-                  class="icon-btn"
-                  :disabled="i === 0"
-                  title="上移"
-                  aria-label="上移插件"
-                  @click="movePlugin(p.id, -1)"
-                >
-                  <Icon name="chevron-up" :size="15" />
-                </Button>
-                <Button variant="outline" size="sm"
-                  class="icon-btn"
-                  :disabled="i === pluginsRef.length - 1"
-                  title="下移"
-                  aria-label="下移插件"
-                  @click="movePlugin(p.id, 1)"
-                >
-                  <Icon name="chevron-down" :size="15" />
-                </Button>
                 <Button variant="outline" size="sm"
                   class="icon-btn"
                   :title="p.sidebar_visible ? '从侧边栏隐藏' : '在侧边栏显示'"
@@ -2253,6 +2326,31 @@ kbd {
   padding: 12px 16px;
 }
 .plugin-row .row-main { flex: 1; }
+.plugin-drag-handle {
+  display: grid;
+  flex: none;
+  width: 28px;
+  height: 32px;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.plugin-drag-handle:hover:not(:disabled) {
+  background: var(--surface-subtle);
+  color: var(--primary);
+}
+.plugin-drag-handle:active:not(:disabled) { cursor: grabbing; }
+.plugin-drag-handle:disabled { cursor: wait; }
+.plugin-card-dragging { opacity: 0.52; }
+.plugin-card-drop-target {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 20%, transparent);
+}
 .plugin-permission-button {
   padding: 5px 9px;
   border: 1px solid var(--border);

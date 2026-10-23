@@ -72,6 +72,13 @@ function ensureCustomSlot(p: PreviewPayload | null) {
     slot.customUrl = p.customUrl
     slot.ready = false
   }
+  if (slot.ready) {
+    postMessageSafe(customFrameRefs.get(p.pluginId)?.contentWindow, {
+      __agileTiles: true,
+      type: 'preview-update',
+      plugin_id: p.pluginId
+    })
+  }
 }
 
 let unlistenUpdate: UnlistenFn | null = null
@@ -87,6 +94,8 @@ const THEME_VARIABLES = [
   '--surface',
   '--surface-subtle',
   '--surface-container',
+  '--primary',
+  '--primary-foreground',
   '--text',
   '--text-muted',
   '--border',
@@ -98,6 +107,7 @@ const THEME_VARIABLES = [
   '--radius',
   '--radius-lg',
   '--font-ui',
+  '--font-mono',
   '--preview-panel-opacity',
   '--preview-panel-opacity-percent'
 ]

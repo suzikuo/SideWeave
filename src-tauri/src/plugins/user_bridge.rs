@@ -26,12 +26,18 @@ pub const BRIDGE_JS: &str = r#"(function () {
   function rpc(action, payload) {
     return new Promise(function (resolve, reject) {
       var id = ++seq;
+      var requestedTimeout = action === 'call' && payload ? Number(payload.timeout_ms) : NaN;
+      // Plugin calls can ask the host for up to 60 seconds. Give the response
+      // bridge a short grace period so its timer does not beat the host's.
+      var timeoutMs = isFinite(requestedTimeout) && requestedTimeout >= 1 && requestedTimeout <= 60000
+        ? Math.ceil(requestedTimeout) + 1000
+        : 9000;
       var timer = setTimeout(function () {
         if (pending[id]) {
           delete pending[id];
           reject(new Error('agileTiles: timeout'));
         }
-      }, 8000);
+      }, timeoutMs);
       pending[id] = {
         resolve: function (v) { clearTimeout(timer); resolve(v); },
         reject: function (e) { clearTimeout(timer); reject(e); }

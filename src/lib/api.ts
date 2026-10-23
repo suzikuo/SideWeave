@@ -52,6 +52,7 @@ export const openExternalUrl = (url: string) => invoke<void>('open_external_url'
 /** 事件名（Rust → 前端） */
 export const EVENTS = {
   settingsChanged: 'settings://changed',
+  pluginsChanged: 'plugins://changed',
   sidebarExpanded: 'sidebar://expanded',
   mainSurface: 'main://surface',
   previewUpdate: 'preview://update',
