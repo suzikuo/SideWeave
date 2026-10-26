@@ -33,6 +33,10 @@ const isCompact = computed(() => displayMode.value === 'compact')
 const defaultStatusText = computed(() =>
   preview.value?.statusText ?? preview.value?.stateText ?? ''
 )
+
+function previewTagStyle(color?: string) {
+  return { '--group-color': color && /^#[0-9a-f]{6}$/i.test(color) ? color : '#94a3b8' }
+}
 const visibleActions = computed(() =>
   preview.value?.actions?.filter((action) => Boolean(action.method)) ?? []
 )
@@ -466,7 +470,15 @@ onUnmounted(() => {
                 <polygon points="5 3 19 12 5 21 5 3"></polygon>
               </svg>
             </div>
-            <span class="item-title">{{ item.title }}</span>
+            <span class="item-copy">
+              <span class="item-title">{{ item.title }}</span>
+              <span v-if="item.tags?.length" class="item-tags" aria-label="所属分组">
+                <span v-for="tag in item.tags.slice(0, 2)" :key="tag.label" class="item-group-tag" :style="previewTagStyle(tag.color)" :title="tag.label">
+                  <i aria-hidden="true" /><span>{{ tag.label }}</span>
+                </span>
+                <span v-if="item.tags.length > 2" class="item-tag-more" :title="item.tags.slice(2).map((tag) => tag.label).join('、')">+{{ item.tags.length - 2 }}</span>
+              </span>
+            </span>
             <span v-if="item.badge" class="item-badge">{{ item.badge }}</span>
             <span v-if="item.subtitle" class="item-subtitle">{{ item.subtitle }}</span>
             <span v-if="actionLoading === item.id" class="spinner item-spinner" />
@@ -1042,6 +1054,13 @@ onUnmounted(() => {
 .item-badge { border: 1px solid color-mix(in srgb, var(--border) var(--preview-panel-opacity-percent, 97%), transparent); border-radius: 4px; background: var(--preview-muted-fill); color: var(--muted-foreground); font-size: 8px; }
 .item-subtitle { max-width: 82px; overflow: hidden; color: var(--muted-foreground); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
 .item-arrow { margin-left: auto; color: var(--muted-foreground); }
+.item-copy { display: flex; flex: 1; flex-direction: column; justify-content: center; gap: 2px; min-width: 0; overflow: hidden; }
+.item-copy .item-title { flex: none; display: block; line-height: 12px; }
+.item-tags { display: flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden; }
+.item-group-tag { display: inline-flex; align-items: center; gap: 3px; min-width: 0; max-width: 92px; padding: 0 4px; border: 1px solid color-mix(in srgb, var(--group-color) 35%, transparent); border-radius: 3px; background: color-mix(in srgb, var(--group-color) 12%, transparent); color: var(--foreground); font-size: 8px; line-height: 11px; }
+.item-group-tag i { width: 4px; height: 4px; flex: none; border-radius: 50%; background: var(--group-color); }
+.item-group-tag > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item-tag-more { flex: none; color: var(--muted-foreground); font-size: 8px; }
 .metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; padding: 5px 6px; }
 .metric-item { display: flex; min-height: 48px; flex-direction: column; justify-content: center; gap: 2px; padding: 6px 8px; border: 1px solid color-mix(in srgb, var(--border) var(--preview-panel-opacity-percent, 97%), transparent); border-radius: 7px; background: var(--preview-panel-fill); }
 .metric-label { color: var(--muted-foreground); font-size: 8px; }

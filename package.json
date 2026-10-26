@@ -10,6 +10,7 @@
     "build:ssh-sidecar": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/internal/build-ssh-sidecar.ps1",
     "preview": "vite preview",
     "typecheck": "vue-tsc --noEmit",
+    "test:detail-host": "node --test scripts/internal/test-plugin-detail-host.mjs",
     "tauri": "tauri"
   },
   "dependencies": {

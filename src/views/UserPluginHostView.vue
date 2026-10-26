@@ -19,6 +19,7 @@ interface PluginSlot {
   allowSameOrigin: boolean
   ready: boolean
   lifecycleActive: boolean | null
+  lastUsed: number
 }
 
 interface PluginEventPayload {
@@ -31,6 +32,7 @@ const pluginSlots = reactive<PluginSlot[]>([])
 const activePluginId = ref<string>('')
 const frameRefs = new Map<string, HTMLIFrameElement>()
 const MAX_PLUGIN_IFRAMES = 4
+let slotUseSequence = 0
 
 const loading = ref(false)
 const error = ref('')
@@ -144,16 +146,18 @@ function resolvePluginEntry(runtime: RuntimePluginInfo): { src: string; sameOrig
 const inFlightLoads = new Map<string, Promise<void>>()
 
 function touchPluginSlot(slot: PluginSlot) {
-  const index = pluginSlots.indexOf(slot)
-  if (index < 0 || index === pluginSlots.length - 1) return
-  pluginSlots.splice(index, 1)
-  pluginSlots.push(slot)
+  // Keep DOM order stable: moving an existing iframe reloads its document
+  // in WebView2 and discards its UI state and pending bridge requests.
+  slot.lastUsed = ++slotUseSequence
 }
 
 function evictOldestInactiveSlot(exceptPluginId: string) {
-  const index = pluginSlots.findIndex(
-    (slot) => slot.pluginId !== exceptPluginId && slot.lifecycleActive !== true
-  )
+  let index = -1
+  for (let i = 0; i < pluginSlots.length; i += 1) {
+    const slot = pluginSlots[i]
+    if (slot.pluginId === exceptPluginId || slot.lifecycleActive === true) continue
+    if (index < 0 || slot.lastUsed < pluginSlots[index].lastUsed) index = i
+  }
   if (index < 0) return false
   const [evicted] = pluginSlots.splice(index, 1)
   if (evicted) {
@@ -224,10 +228,10 @@ async function loadPlugin(id: string) {
         src,
         allowSameOrigin: sameOrigin,
         ready: false,
-        lifecycleActive: null
+        lifecycleActive: null,
+        lastUsed: ++slotUseSequence
       }
-      if (activePluginId.value === id) pluginSlots.push(slot)
-      else pluginSlots.unshift(slot)
+      pluginSlots.push(slot)
 
       clearFrameLoadTimer()
       frameLoadTimer = window.setTimeout(() => {
@@ -414,16 +418,19 @@ async function onMessage(e: MessageEvent) {
   const sourcePluginId = framePluginId(e.source)
   if (
     !sourcePluginId ||
-    sourcePluginId !== d.plugin_id ||
-    !props.active ||
-    activePluginId.value !== sourcePluginId
+    sourcePluginId !== d.plugin_id
   ) return
   const slot = pluginSlots.find((item) => item.pluginId === sourcePluginId)
-  if (!slot || slot.lifecycleActive === false) return
+  if (!slot) return
   if (d.type === 'close-detail') {
-    void closeDetail().catch(() => {})
+    if (props.active && activePluginId.value === sourcePluginId) {
+      void closeDetail().catch(() => {})
+    }
     return
   }
+  // Lifecycle pauses UI polling, but is not an RPC authorization boundary.
+  // A retained frame may still be initializing or completing an async action
+  // after a switch. Silently dropping its calls leaves it empty on reopening.
   if ((typeof d.id !== 'number' && typeof d.id !== 'string') || !messageAllowed(d)) return
   const payload = d.payload ?? {}
   try {

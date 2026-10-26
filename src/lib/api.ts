@@ -107,6 +107,7 @@ export interface PreviewItem {
   tooltip?: string
   icon?: string
   badge?: string
+  tags?: { label: string; color?: string }[]
   method?: string
   payload?: any
 }
