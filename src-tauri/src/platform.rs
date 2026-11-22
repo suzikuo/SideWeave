@@ -124,9 +124,6 @@ pub fn work_area() -> WorkArea {
 
 #[cfg(windows)]
 mod clickthrough {
-    use std::collections::HashMap;
-    use std::sync::{Mutex, OnceLock};
-
     use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
     use windows_sys::Win32::UI::Shell::{
         DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass, SUBCLASSPROC,
@@ -138,55 +135,28 @@ mod clickthrough {
 
     const SUBCLASS_ID: usize = 0xA61C_0001;
 
-    fn states() -> &'static Mutex<HashMap<isize, bool>> {
-        static STATES: OnceLock<Mutex<HashMap<isize, bool>>> = OnceLock::new();
-        STATES.get_or_init(|| Mutex::new(HashMap::new()))
-    }
-
-    fn enabled(hwnd: HWND) -> bool {
-        states()
-            .lock()
-            .ok()
-            .and_then(|items| items.get(&(hwnd as isize)).copied())
-            .unwrap_or(false)
-    }
-
+    /// Lock-free hit-test hook: `reference_data` stores `enabled as usize` directly.
     unsafe extern "system" fn subclass_proc(
         hwnd: HWND,
         message: u32,
         wparam: WPARAM,
         lparam: LPARAM,
         _subclass_id: usize,
-        _reference_data: usize,
+        reference_data: usize,
     ) -> LRESULT {
-        if message == WM_NCHITTEST && enabled(hwnd) {
+        if message == WM_NCHITTEST && reference_data != 0 {
             return HTTRANSPARENT as LRESULT;
         }
         DefSubclassProc(hwnd, message, wparam, lparam)
     }
 
-    pub(super) fn install(hwnd: HWND) -> Result<(), String> {
-        let key = hwnd as isize;
-        let mut items = states()
-            .lock()
-            .map_err(|_| "click-through window registry is poisoned".to_string())?;
-        if !items.contains_key(&key) {
-            let callback: SUBCLASSPROC = Some(subclass_proc);
-            let installed = unsafe { SetWindowSubclass(hwnd, callback, SUBCLASS_ID, 0) };
-            if installed == 0 {
-                return Err("failed to install click-through window hook".into());
-            }
-            items.insert(key, false);
-        }
-        Ok(())
-    }
-
     pub(super) fn set(hwnd: HWND, enabled: bool) -> Result<(), String> {
-        install(hwnd)?;
-        states()
-            .lock()
-            .map_err(|_| "click-through window registry is poisoned".to_string())?
-            .insert(hwnd as isize, enabled);
+        let callback: SUBCLASSPROC = Some(subclass_proc);
+        let installed =
+            unsafe { SetWindowSubclass(hwnd, callback, SUBCLASS_ID, usize::from(enabled)) };
+        if installed == 0 {
+            return Err("failed to update click-through window hook".into());
+        }
         let styles = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) };
         let styles = if enabled {
             styles | WS_EX_TRANSPARENT as isize
@@ -200,14 +170,76 @@ mod clickthrough {
     }
 
     pub(super) fn remove(hwnd: HWND) {
-        if let Ok(mut items) = states().lock() {
-            items.remove(&(hwnd as isize));
-        }
         let callback: SUBCLASSPROC = Some(subclass_proc);
         unsafe {
             let _ = RemoveWindowSubclass(hwnd, callback, SUBCLASS_ID);
         }
     }
+}
+
+#[cfg(windows)]
+mod display_watch {
+    use std::sync::{Arc, OnceLock};
+
+    use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+    use windows_sys::Win32::UI::Shell::{
+        DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass, SUBCLASSPROC,
+    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        SPI_SETWORKAREA, WM_DISPLAYCHANGE, WM_DPICHANGED, WM_NCDESTROY, WM_SETTINGCHANGE,
+    };
+
+    const SUBCLASS_ID: usize = 0xA61C_0002;
+
+    static CALLBACK: OnceLock<Arc<dyn Fn() + Send + Sync>> = OnceLock::new();
+
+    unsafe extern "system" fn subclass_proc(
+        hwnd: HWND,
+        message: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+        _subclass_id: usize,
+        _reference_data: usize,
+    ) -> LRESULT {
+        let should_notify = match message {
+            WM_DISPLAYCHANGE | WM_DPICHANGED => true,
+            WM_SETTINGCHANGE => wparam == SPI_SETWORKAREA as usize || wparam == 0,
+            WM_NCDESTROY => {
+                let callback: SUBCLASSPROC = Some(subclass_proc);
+                let _ = RemoveWindowSubclass(hwnd, callback, SUBCLASS_ID);
+                false
+            }
+            _ => false,
+        };
+        if should_notify {
+            if let Some(cb) = CALLBACK.get() {
+                cb();
+            }
+        }
+        DefSubclassProc(hwnd, message, wparam, lparam)
+    }
+
+    pub(super) fn install(hwnd: HWND, on_change: Arc<dyn Fn() + Send + Sync>) -> bool {
+        let _ = CALLBACK.set(on_change);
+        let callback: SUBCLASSPROC = Some(subclass_proc);
+        unsafe { SetWindowSubclass(hwnd, callback, SUBCLASS_ID, 0) != 0 }
+    }
+}
+
+#[cfg(windows)]
+pub fn install_display_change_hook(
+    hwnd: *mut std::ffi::c_void,
+    on_change: std::sync::Arc<dyn Fn() + Send + Sync>,
+) -> bool {
+    display_watch::install(hwnd, on_change)
+}
+
+#[cfg(not(windows))]
+pub fn install_display_change_hook(
+    _hwnd: *mut std::ffi::c_void,
+    _on_change: std::sync::Arc<dyn Fn() + Send + Sync>,
+) -> bool {
+    false
 }
 
 #[cfg(windows)]

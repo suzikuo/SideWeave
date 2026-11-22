@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { onUnmounted, ref, watch } from 'vue'
 import Icon from './Icon.vue'
 
 const props = defineProps<{
@@ -12,18 +12,33 @@ const emit = defineEmits<{ (e: 'done'): void }>()
 
 const visible = ref(false)
 let timer: number | undefined
+let doneTimer: number | undefined
+
+function clearTimers() {
+  if (timer !== undefined) {
+    window.clearTimeout(timer)
+    timer = undefined
+  }
+  if (doneTimer !== undefined) {
+    window.clearTimeout(doneTimer)
+    doneTimer = undefined
+  }
+}
 
 function show() {
+  clearTimers()
   if (!props.message.trim()) {
     visible.value = false
-    window.clearTimeout(timer)
     return
   }
   visible.value = true
-  window.clearTimeout(timer)
   timer = window.setTimeout(() => {
+    timer = undefined
     visible.value = false
-    window.setTimeout(() => emit('done'), 300)
+    doneTimer = window.setTimeout(() => {
+      doneTimer = undefined
+      emit('done')
+    }, 300)
   }, props.duration ?? 3200)
 }
 
@@ -32,6 +47,10 @@ watch(
   () => show(),
   { immediate: true }
 )
+
+onUnmounted(() => {
+  clearTimers()
+})
 </script>
 
 <template>

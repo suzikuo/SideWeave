@@ -52,6 +52,7 @@ function loadPluginIcons(items: DesktopNotification[]) {
 
 function applySnapshot(snapshot: NotificationViewSnapshot) {
   const previousIds = new Set(notifications.value.map((item) => item.id))
+  const activeIds = new Set(snapshot.notifications.map((item) => item.id))
   const addedOrRemovedCount =
     snapshot.notifications.filter((item) => !previousIds.has(item.id)).length +
     notifications.value.filter((item) => !activeIds.has(item.id)).length
@@ -193,13 +194,14 @@ onUnmounted(() => {
             <p v-if="item.body || (isSidebar && item.title)">{{ isSidebar && !item.body ? item.title : item.body }}</p>
           </div>
           <button
-            v-if="!isSidebar"
             class="toast-close"
+            :class="{ 'sidebar-close': isSidebar }"
             type="button"
             aria-label="关闭通知"
+            :title="isSidebar ? '关闭通知（亦可右键气泡关闭）' : '关闭通知'"
             @click.stop="dismiss(item.id)"
           >
-            <Icon name="x" :size="14" :stroke-width="1.8" />
+            <Icon name="x" :size="isSidebar ? 12 : 14" :stroke-width="1.8" />
           </button>
         </article>
       </TransitionGroup>
@@ -292,12 +294,12 @@ onUnmounted(() => {
   --tone: var(--notification-bubble-info, var(--accent, #4d80ff));
   --notification-bubble-fill: var(--notification-custom-bubble-background-fill, color-mix(in srgb, var(--notification-custom-bubble-background, var(--notification-bubble-background, #fff)) var(--notification-bubble-background-strength, var(--notification-background-strength, 90%)), transparent));
   isolation: isolate;
-  grid-template-columns: 26px minmax(0, 1fr);
+  grid-template-columns: 26px minmax(0, 1fr) 20px;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   overflow: visible;
   margin: 1px;
-  padding: 9px 11px;
+  padding: 9px 10px 9px 11px;
   border: 1px solid color-mix(in srgb, var(--notification-bubble-border, #d4d4d8) 88%, transparent);
   border-radius: var(--notification-bubble-radius, 14px);
   background: var(--notification-bubble-fill);
@@ -308,8 +310,11 @@ onUnmounted(() => {
 }
 .notification.sidebar-bubble::before,
 .notification.sidebar-bubble::after { content: none; }
-.sidebar-bubble .toast-close { width: 22px; height: 22px; color: var(--notification-custom-bubble-body-color, var(--notification-bubble-body, #52525b)); opacity: .65; }
-.sidebar-bubble .toast-close:hover, .sidebar-bubble .toast-close:focus-visible { background: color-mix(in srgb, var(--notification-bubble-border, #d4d4d8) 40%, transparent); color: var(--notification-custom-bubble-color, var(--notification-bubble-color, #18181b)); }
+.sidebar-bubble .toast-close.sidebar-close { width: 20px; height: 20px; color: var(--notification-custom-bubble-body-color, var(--notification-bubble-body, #52525b)); opacity: .35; }
+.sidebar-bubble:hover .toast-close.sidebar-close,
+.sidebar-bubble:focus-within .toast-close.sidebar-close { opacity: .8; }
+.sidebar-bubble .toast-close.sidebar-close:hover,
+.sidebar-bubble .toast-close.sidebar-close:focus-visible { background: color-mix(in srgb, var(--notification-bubble-border, #d4d4d8) 40%, transparent); color: var(--notification-custom-bubble-color, var(--notification-bubble-color, #18181b)); opacity: 1; }
 .notification.sidebar-bubble.success { --tone: var(--notification-bubble-success, #16845b); }
 .notification.sidebar-bubble.warning { --tone: var(--notification-bubble-warning, #a96a0d); }
 .notification.sidebar-bubble.alarm { --tone: var(--notification-bubble-alarm, #c3444b); }

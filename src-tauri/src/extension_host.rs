@@ -1271,8 +1271,15 @@ fn file_error(operation: &str, path: &Path, error: std::io::Error) -> HostError 
 }
 
 #[cfg(windows)]
-fn harden_private_file(path: &Path) -> Result<(), HostError> {
+fn current_windows_principal() -> Result<&'static str, HostError> {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    static PRINCIPAL: OnceLock<String> = OnceLock::new();
+    if let Some(cached) = PRINCIPAL.get() {
+        return Ok(cached.as_str());
+    }
     let output = Command::new("whoami")
+        .creation_flags(CREATE_NO_WINDOW)
         .output()
         .map_err(|error| HostError::new(format!("无法获取当前 Windows 用户：{error}")))?;
     if !output.status.success() {
@@ -1282,8 +1289,26 @@ fn harden_private_file(path: &Path) -> Result<(), HostError> {
     if principal.is_empty() {
         return Err(HostError::new("无法获取当前 Windows 用户"));
     }
+    let _ = PRINCIPAL.set(principal);
+    Ok(PRINCIPAL.get().map(String::as_str).unwrap_or_default())
+}
+
+#[cfg(windows)]
+fn harden_private_file(path: &Path) -> Result<(), HostError> {
+    use std::collections::HashSet;
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    static HARDENED_PATHS: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
+    let cache = HARDENED_PATHS.get_or_init(|| Mutex::new(HashSet::new()));
+    if let Ok(set) = cache.lock() {
+        if set.contains(path) {
+            return Ok(());
+        }
+    }
+    let principal = current_windows_principal()?;
     let grant = format!("{principal}:(M)");
     let output = Command::new("icacls")
+        .creation_flags(CREATE_NO_WINDOW)
         .arg(path)
         .args(["/inheritance:r", "/grant:r"])
         .arg(grant)
@@ -1301,6 +1326,12 @@ fn harden_private_file(path: &Path) -> Result<(), HostError> {
         } else {
             format!("无法设置私有文件权限：{detail}{code}")
         }));
+    }
+    if let Ok(mut set) = cache.lock() {
+        if set.len() >= 1024 {
+            set.clear();
+        }
+        set.insert(path.to_path_buf());
     }
     Ok(())
 }

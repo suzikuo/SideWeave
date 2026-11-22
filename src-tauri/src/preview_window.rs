@@ -32,7 +32,8 @@ pub struct ButtonRect {
 pub struct PreviewCoordinator {
     show_gen: AtomicU64,
     hide_gen: AtomicU64,
-    is_showing: AtomicBool,
+    destroy_gen: Arc<AtomicU64>,
+    is_showing: Arc<AtomicBool>,
     in_preview: AtomicBool,
     hover_target: Mutex<Option<(String, ButtonRect)>>,
     last_anchor: Mutex<Option<ButtonRect>>,
@@ -44,7 +45,8 @@ impl Default for PreviewCoordinator {
         Self {
             show_gen: AtomicU64::new(0),
             hide_gen: AtomicU64::new(0),
-            is_showing: AtomicBool::new(false),
+            destroy_gen: Arc::new(AtomicU64::new(0)),
+            is_showing: Arc::new(AtomicBool::new(false)),
             in_preview: AtomicBool::new(false),
             hover_target: Mutex::new(None),
             last_anchor: Mutex::new(None),
@@ -461,12 +463,15 @@ impl PreviewCoordinator {
             }
         }
 
+        self.destroy_gen.fetch_add(1, Ordering::SeqCst);
         self.is_showing.store(true, Ordering::SeqCst);
         *self.last_anchor.lock().unwrap() = Some(rect);
+        let _ = app.emit_to(PREVIEW_WINDOW, "preview://visibility", true);
         let _ = app.emit_to(crate::SIDEBAR, "preview://opened", ());
     }
 
     pub fn hide_preview_impl(&self, app: &AppHandle) {
+        let _ = app.emit_to(PREVIEW_WINDOW, "preview://visibility", false);
         if let Some(win) = app.get_webview_window(PREVIEW_WINDOW) {
             let _ = win.hide();
         }
@@ -474,6 +479,30 @@ impl PreviewCoordinator {
         self.is_showing.store(false, Ordering::SeqCst);
         self.in_preview.store(false, Ordering::SeqCst);
         check_sidebar_collapse_after_preview(app);
+
+        let policy = crate::performance_manager(app)
+            .effective_policy(Some(crate::host_settings(app).general.hover_preview_delay));
+        if !policy.preview_keep_alive {
+            let gen = self.destroy_gen.fetch_add(1, Ordering::SeqCst) + 1;
+            let destroy_gen = Arc::clone(&self.destroy_gen);
+            let is_showing = Arc::clone(&self.is_showing);
+            let app_clone = app.clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(1500)).await;
+                if destroy_gen.load(Ordering::SeqCst) != gen || is_showing.load(Ordering::SeqCst) {
+                    return;
+                }
+                let latest_policy = crate::performance_manager(&app_clone).effective_policy(Some(
+                    crate::host_settings(&app_clone).general.hover_preview_delay,
+                ));
+                if latest_policy.preview_keep_alive {
+                    return;
+                }
+                if let Some(win) = app_clone.get_webview_window(PREVIEW_WINDOW) {
+                    let _ = win.destroy();
+                }
+            });
+        }
     }
 
     pub fn sidebar_enter(self: &Arc<Self>, app: &AppHandle, plugin_id: String, rect: ButtonRect) {
@@ -580,6 +609,7 @@ impl PreviewCoordinator {
     pub fn preview_window_enter(&self) {
         self.in_preview.store(true, Ordering::SeqCst);
         self.hide_gen.fetch_add(1, Ordering::SeqCst); // 鼠标进入卡片，取消隐藏
+        self.destroy_gen.fetch_add(1, Ordering::SeqCst);
     }
 
     pub fn preview_window_leave(self: &Arc<Self>, app: &AppHandle) {

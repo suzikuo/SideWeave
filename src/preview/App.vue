@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import Button from '@/components/ui/button/Button.vue'
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, defineAsyncComponent, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import {
   EVENTS,
@@ -17,7 +17,7 @@ import {
 import Icon from '../ui/Icon.vue'
 import { pluginCall } from '../lib/pluginApi'
 import { applyTheme } from '../lib/theme'
-import SkinSurfaceHost from '../views/SkinSurfaceHost.vue'
+const SkinSurfaceHost = defineAsyncComponent(() => import('../views/SkinSurfaceHost.vue'))
 import type { Settings } from '../lib/types'
 
 const preview = ref<PreviewPayload | null>(null)
@@ -51,9 +51,11 @@ interface CustomPreviewSlot {
   pluginId: string
   customUrl: string
   ready: boolean
+  lifecycleActive: boolean
 }
 const customSlots = reactive<CustomPreviewSlot[]>([])
 const customFrameRefs = new Map<string, HTMLIFrameElement>()
+const previewVisible = ref(true)
 
 function setCustomFrameRef(id: string, el: unknown) {
   if (el instanceof HTMLIFrameElement) {
@@ -63,19 +65,44 @@ function setCustomFrameRef(id: string, el: unknown) {
   }
 }
 
+function syncCustomPreviewLifecycles() {
+  const activePluginId =
+    previewVisible.value && preview.value?.mode === 'custom' ? preview.value.pluginId : null
+  for (const slot of customSlots) {
+    const shouldBeActive = slot.ready && slot.pluginId === activePluginId
+    if (slot.lifecycleActive === shouldBeActive) continue
+    slot.lifecycleActive = shouldBeActive
+    const target = customFrameRefs.get(slot.pluginId)?.contentWindow
+    if (target) {
+      postMessageSafe(target, {
+        __agileTiles: true,
+        type: 'lifecycle',
+        plugin_id: slot.pluginId,
+        active: shouldBeActive
+      })
+    }
+  }
+}
+
 function ensureCustomSlot(p: PreviewPayload | null) {
-  if (!p || p.mode !== 'custom' || !p.customUrl) return
+  if (!p || p.mode !== 'custom' || !p.customUrl) {
+    syncCustomPreviewLifecycles()
+    return
+  }
   let slot = customSlots.find((s) => s.pluginId === p.pluginId)
   if (!slot) {
     if (customSlots.length >= 6) {
       const removed = customSlots.shift()
       if (removed) customFrameRefs.delete(removed.pluginId)
     }
-    customSlots.push({ pluginId: p.pluginId, customUrl: p.customUrl, ready: false })
+    slot = { pluginId: p.pluginId, customUrl: p.customUrl, ready: false, lifecycleActive: false }
+    customSlots.push(slot)
   } else if (slot.customUrl !== p.customUrl) {
     slot.customUrl = p.customUrl
     slot.ready = false
+    slot.lifecycleActive = false
   }
+  syncCustomPreviewLifecycles()
   if (slot.ready) {
     postMessageSafe(customFrameRefs.get(p.pluginId)?.contentWindow, {
       __agileTiles: true,
@@ -85,9 +112,11 @@ function ensureCustomSlot(p: PreviewPayload | null) {
   }
 }
 
+let previewDisposed = false
 let unlistenUpdate: UnlistenFn | null = null
 let unlistenSettings: UnlistenFn | null = null
 let unlistenPluginEvent: UnlistenFn | null = null
+let unlistenVisibility: UnlistenFn | null = null
 let themeObserver: MutationObserver | null = null
 
 const MAX_MESSAGE_BYTES = 256 * 1024
@@ -186,6 +215,7 @@ function onCustomFrameLoad(pluginId: string) {
   if (slot) slot.ready = true
   syncFrameTheme(pluginId)
   syncCustomPreviewContext(pluginId)
+  syncCustomPreviewLifecycles()
 }
 
 interface UopRequest {
@@ -339,20 +369,26 @@ onMounted(async () => {
   // 同步宿主主题与外观
   try {
     const state = await getState()
+    if (previewDisposed) return
     settings.value = state.settings
     applyTheme(state.settings)
   } catch {}
 
-  unlistenSettings = await listen<Settings>(EVENTS.settingsChanged, (e) => {
+  const stopSettings = await listen<Settings>(EVENTS.settingsChanged, (e) => {
     settings.value = e.payload
     applyTheme(e.payload)
-    syncFrameTheme()
     syncCustomPreviewContext()
   })
+  if (previewDisposed) {
+    stopSettings()
+    return
+  }
+  unlistenSettings = stopSettings
 
   // 主动读取当前预览数据（防止首屏冷启动时错过广播事件）
   try {
     const initial = await getCurrentPreview()
+    if (previewDisposed) return
     if (initial) {
       preview.value = initial
       ensureCustomSlot(initial)
@@ -360,14 +396,31 @@ onMounted(async () => {
   } catch {}
 
   // 监听后续动态广播更新
-  unlistenUpdate = await listen<PreviewPayload>(EVENTS.previewUpdate, (e) => {
+  const stopUpdate = await listen<PreviewPayload>(EVENTS.previewUpdate, (e) => {
     preview.value = e.payload
     ensureCustomSlot(e.payload)
   })
+  if (previewDisposed) {
+    stopUpdate()
+    return
+  }
+  unlistenUpdate = stopUpdate
 
-  // 转发插件级事件至 iframe
-  unlistenPluginEvent = await listen<PluginEventPayload>('plugin://event', (event) => {
+  const stopVisibility = await listen<boolean>('preview://visibility', (e) => {
+    previewVisible.value = Boolean(e.payload)
+    syncCustomPreviewLifecycles()
+  })
+  if (previewDisposed) {
+    stopVisibility()
+    return
+  }
+  unlistenVisibility = stopVisibility
+
+  // 转发插件级事件至当前可见且激活的自定义预览 iframe
+  const stopPluginEvent = await listen<PluginEventPayload>('plugin://event', (event) => {
+    if (!previewVisible.value || preview.value?.mode !== 'custom') return
     const p = event.payload
+    if (preview.value.pluginId !== p.plugin_id) return
     const target = customFrameRefs.get(p.plugin_id)?.contentWindow
     if (!target) return
     postMessageSafe(target, {
@@ -380,15 +433,22 @@ onMounted(async () => {
       }
     })
   })
+  if (previewDisposed) {
+    stopPluginEvent()
+    return
+  }
+  unlistenPluginEvent = stopPluginEvent
 })
 
 onUnmounted(() => {
+  previewDisposed = true
   window.removeEventListener('message', onMessage)
   customSlots.length = 0
   customFrameRefs.clear()
   if (themeObserver) themeObserver.disconnect()
   if (unlistenUpdate) unlistenUpdate()
   if (unlistenSettings) unlistenSettings()
+  if (unlistenVisibility) unlistenVisibility()
   if (unlistenPluginEvent) unlistenPluginEvent()
 })
 </script>
@@ -539,7 +599,7 @@ onUnmounted(() => {
     </div>
   </div>
   <SkinSurfaceHost
-    v-if="settings"
+    v-if="settings && settings.appearance.skin.startsWith('user:')"
     :skin-id="settings.appearance.skin"
     surface="preview"
     :enabled="Boolean(preview)"
@@ -618,15 +678,12 @@ onUnmounted(() => {
   height: 100%;
   border: none;
   background: transparent;
-  visibility: hidden;
-  opacity: 0;
+  display: none;
   pointer-events: none;
-  transition: opacity 0.1s ease;
 }
 
 .custom-frame.active {
-  visibility: visible;
-  opacity: 1;
+  display: block;
   pointer-events: auto;
 }
 
@@ -1033,14 +1090,14 @@ onUnmounted(() => {
 .header { min-height: 46px; align-items: center; gap: 8px; padding: 7px 10px; }
 .preview-app-icon { display: grid; width: 30px; height: 30px; flex: none; place-items: center; border: 1px solid color-mix(in srgb, var(--border) var(--preview-panel-opacity-percent, 97%), transparent); border-radius: 7px; background: var(--preview-muted-fill); color: var(--foreground); }
 .title-group { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
-.title { color: var(--foreground); font-size: 10px; font-weight: 600; line-height: 1.15; letter-spacing: -.01em; }
-.subtitle { margin-top: 0; color: var(--muted-foreground); font-size: 8px; }
-.status-badge { padding: 2px 6px; border-color: color-mix(in srgb, var(--border) var(--preview-panel-opacity-percent, 97%), transparent); border-radius: 5px; background: var(--preview-muted-fill); font-size: 8px; }
+.title { color: var(--foreground); font-size: 13px; font-weight: 600; line-height: 1.2; letter-spacing: -.01em; }
+.subtitle { margin-top: 0; color: var(--muted-foreground); font-size: 11px; }
+.status-badge { padding: 2px 7px; border-color: color-mix(in srgb, var(--border) var(--preview-panel-opacity-percent, 97%), transparent); border-radius: 5px; background: var(--preview-muted-fill); font-size: 11px; }
 .status-dot { width: 6px; height: 6px; box-shadow: none; }
 .preview-divider { height: 1px; flex: none; background: color-mix(in srgb, var(--border) var(--preview-panel-opacity-percent, 97%), transparent); }
 .preview-content { display: flex; min-height: 0; flex: 1; flex-direction: column; gap: 7px; overflow: auto; padding: 8px 10px; }
 .preview-progress { gap: 5px; padding: 8px 9px; border: 1px solid color-mix(in srgb, var(--border) var(--preview-panel-opacity-percent, 97%), transparent); border-radius: 7px; background: var(--preview-panel-fill); }
-.progress-label { color: var(--muted-foreground); font-size: 8px; }
+.progress-label { color: var(--muted-foreground); font-size: 11px; }
 .progress-track { height: 4px; border: 0; background: var(--preview-muted-fill); }
 .progress-fill { border-radius: 999px; background: var(--primary); }
 .items-list { display: flex; min-height: 0; flex: 0 1 auto; flex-direction: column; gap: 1px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding: 4px; border: 1px solid color-mix(in srgb, var(--border) var(--preview-panel-opacity-percent, 97%), transparent); border-radius: 8px; background: var(--preview-panel-fill); }
@@ -1050,29 +1107,29 @@ onUnmounted(() => {
 .item-icon,
 .item-icon-placeholder { width: 24px; height: 24px; flex: none; border: 1px solid color-mix(in srgb, var(--border) var(--preview-panel-opacity-percent, 97%), transparent); border-radius: 6px; background: var(--preview-panel-fill); }
 .item-icon-placeholder { display: grid; place-items: center; color: var(--muted-foreground); }
-.item-title { min-width: 0; overflow: hidden; font-size: 10px; font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
-.item-badge { border: 1px solid color-mix(in srgb, var(--border) var(--preview-panel-opacity-percent, 97%), transparent); border-radius: 4px; background: var(--preview-muted-fill); color: var(--muted-foreground); font-size: 8px; }
-.item-subtitle { max-width: 82px; overflow: hidden; color: var(--muted-foreground); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.item-title { min-width: 0; overflow: hidden; font-size: 12px; font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
+.item-badge { border: 1px solid color-mix(in srgb, var(--border) var(--preview-panel-opacity-percent, 97%), transparent); border-radius: 4px; background: var(--preview-muted-fill); color: var(--muted-foreground); font-size: 10.5px; }
+.item-subtitle { max-width: 96px; overflow: hidden; color: var(--muted-foreground); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .item-arrow { margin-left: auto; color: var(--muted-foreground); }
 .item-copy { display: flex; flex: 1; flex-direction: column; justify-content: center; gap: 2px; min-width: 0; overflow: hidden; }
-.item-copy .item-title { flex: none; display: block; line-height: 12px; }
+.item-copy .item-title { flex: none; display: block; line-height: 15px; }
 .item-tags { display: flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden; }
-.item-group-tag { display: inline-flex; align-items: center; gap: 3px; min-width: 0; max-width: 92px; padding: 0 4px; border: 1px solid color-mix(in srgb, var(--group-color) 35%, transparent); border-radius: 3px; background: color-mix(in srgb, var(--group-color) 12%, transparent); color: var(--foreground); font-size: 8px; line-height: 11px; }
+.item-group-tag { display: inline-flex; align-items: center; gap: 3px; min-width: 0; max-width: 96px; padding: 0 5px; border: 1px solid color-mix(in srgb, var(--group-color) 35%, transparent); border-radius: 3px; background: color-mix(in srgb, var(--group-color) 12%, transparent); color: var(--foreground); font-size: 10px; line-height: 14px; }
 .item-group-tag i { width: 4px; height: 4px; flex: none; border-radius: 50%; background: var(--group-color); }
 .item-group-tag > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.item-tag-more { flex: none; color: var(--muted-foreground); font-size: 8px; }
+.item-tag-more { flex: none; color: var(--muted-foreground); font-size: 10px; }
 .metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; padding: 5px 6px; }
 .metric-item { display: flex; min-height: 48px; flex-direction: column; justify-content: center; gap: 2px; padding: 6px 8px; border: 1px solid color-mix(in srgb, var(--border) var(--preview-panel-opacity-percent, 97%), transparent); border-radius: 7px; background: var(--preview-panel-fill); }
-.metric-label { color: var(--muted-foreground); font-size: 8px; }
-.metric-value { color: var(--foreground); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.metric-subvalue { color: var(--muted-foreground); font-size: 8px; }
+.metric-label { color: var(--muted-foreground); font-size: 11px; }
+.metric-value { color: var(--foreground); font-size: 13.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.metric-subvalue { color: var(--muted-foreground); font-size: 10.5px; }
 .empty-preview { display: flex; min-height: 96px; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 5px; padding: 10px; border: 1px dashed var(--border); border-radius: 8px; background: transparent; text-align: center; }
 .empty-icon { width: 28px; height: 28px; margin-bottom: 1px; border: 1px solid color-mix(in srgb, var(--border) var(--preview-panel-opacity-percent, 97%), transparent); border-radius: 7px; background: var(--preview-muted-fill); color: var(--muted-foreground); }
-.empty-text { color: var(--foreground); font-size: 9px; font-weight: 550; }
-.empty-hint { color: var(--muted-foreground); font-size: 8px; }
-.action-error { padding: 6px 8px; border: 1px solid color-mix(in srgb, color-mix(in srgb, var(--destructive) 30%, transparent) var(--preview-panel-opacity-percent, 97%), transparent); border-radius: 6px; background: color-mix(in srgb, color-mix(in srgb, var(--destructive) 8%, transparent) var(--preview-panel-opacity-percent, 97%), transparent); color: var(--destructive); font-size: 8px; }
+.empty-text { color: var(--foreground); font-size: 12px; font-weight: 550; }
+.empty-hint { color: var(--muted-foreground); font-size: 11px; }
+.action-error { padding: 6px 8px; border: 1px solid color-mix(in srgb, color-mix(in srgb, var(--destructive) 30%, transparent) var(--preview-panel-opacity-percent, 97%), transparent); border-radius: 6px; background: color-mix(in srgb, color-mix(in srgb, var(--destructive) 8%, transparent) var(--preview-panel-opacity-percent, 97%), transparent); color: var(--destructive); font-size: 11px; }
 .actions-bar { flex: none; flex-wrap: wrap; gap: 5px; padding: 7px 10px; border-top: 1px solid color-mix(in srgb, var(--border) var(--preview-panel-opacity-percent, 97%), transparent); background: color-mix(in srgb, color-mix(in srgb, var(--muted) 32%, transparent) var(--preview-panel-opacity-percent, 97%), transparent); }
-.actions-bar :deep(button) { min-height: 26px; border-radius: 5px; font-size: 8px; }
+.actions-bar :deep(button) { min-height: 28px; border-radius: 6px; font-size: 11.5px; }
 .action-btn.primary { background: var(--primary); color: var(--primary-foreground); }
 .action-btn.danger { border-color: color-mix(in srgb, var(--destructive) 30%, var(--border)); background: color-mix(in srgb, var(--destructive) 8%, var(--background)); color: var(--destructive); }
 .action-btn.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--destructive) 14%, var(--background)); }

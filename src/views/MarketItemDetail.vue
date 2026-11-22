@@ -58,7 +58,30 @@ const permissionLabels: Record<string, string> = {
   'system.icon': '提取文件图标'
 }
 
-const appearanceRows = computed(() => Object.entries(props.installed?.appearanceDefaults ?? {}))
+const appearanceLabels: Record<string, string> = {
+  sidebarPanelOpacity: '侧边栏背景不透明度',
+  sidebarImageOpacity: '侧边栏皮肤图不透明度',
+  detailPanelOpacity: '详情页底色不透明度',
+  controlPanelOpacity: '控制中心底色不透明度',
+  previewPanelOpacity: '悬浮预览底色不透明度',
+  previewImageOpacity: '悬浮预览背景图不透明度',
+  detailImageOpacity: '详情页背景图不透明度',
+  componentOpacity: '卡片与组件不透明度'
+}
+
+function formatAppearancePercent(value: unknown): string {
+  const num = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(num)) return String(value)
+  const pct = num >= 0 && num <= 1 ? Math.round(num * 100) : Math.round(num)
+  return `${pct}%`
+}
+
+const appearanceRows = computed(() =>
+  Object.entries(props.installed?.appearanceDefaults ?? {}).map(([key, value]) => [
+    appearanceLabels[key] ?? key,
+    formatAppearancePercent(value)
+  ] as const)
+)
 const hasMarketMetadata = computed(() => Boolean(props.item.publisher || props.item.repository || props.item.versions.length))
 </script>
 
@@ -116,7 +139,7 @@ const hasMarketMetadata = computed(() => Boolean(props.item.publisher || props.i
         <section v-else-if="appearanceRows.length" class="detail-panel">
           <h4>皮肤建议</h4>
           <dl class="detail-facts">
-            <div v-for="[key, value] in appearanceRows" :key="key"><dt>{{ key }}</dt><dd>{{ value }}%</dd></div>
+            <div v-for="[label, formatted] in appearanceRows" :key="label"><dt>{{ label }}</dt><dd>{{ formatted }}</dd></div>
           </dl>
         </section>
 
@@ -201,34 +224,34 @@ const hasMarketMetadata = computed(() => Boolean(props.item.publisher || props.i
 
 .market-detail { gap: 10px; }
 .detail-toolbar { min-height: 30px; }
-.back-button { min-height: 28px; padding: 0 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--background); color: var(--muted-foreground); font-size: 9px; }
+.back-button { min-height: 30px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--background); color: var(--muted-foreground); font-size: 12px; }
 .back-button:hover { border-color: var(--border-strong); background: var(--muted); color: var(--foreground); }
-.detail-kicker { color: var(--muted-foreground); font-size: 9px; font-weight: 550; }
+.detail-kicker { color: var(--muted-foreground); font-size: 11.5px; font-weight: 550; }
 .detail-scroll { padding: 0 1px 8px; }
 .detail-hero { gap: 13px; padding: 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); }
 .detail-icon { width: 42px; height: 42px; border: 1px solid var(--border); border-radius: 8px; background: var(--muted); color: var(--foreground); }
-.detail-title h3 { color: var(--foreground); font-size: 15px; font-weight: 600; }
-.detail-subtitle { color: var(--muted-foreground); font-size: 9px; }
-.detail-description { margin-top: 8px; color: var(--muted-foreground); font-size: 10px; line-height: 1.55; }
+.detail-title h3 { color: var(--foreground); font-size: 16px; font-weight: 600; }
+.detail-subtitle { color: var(--muted-foreground); font-size: 11.5px; }
+.detail-description { margin-top: 8px; color: var(--muted-foreground); font-size: 12.5px; line-height: 1.6; }
 .detail-badges .chip,
-.detail-badges .ver-badge { border: 1px solid var(--border); border-radius: 4px; background: var(--background); color: var(--muted-foreground); font-size: 8px; }
-.detail-grid { gap: 8px; margin-top: 8px; }
-.detail-panel { padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); }
-.detail-panel h4 { margin-bottom: 10px; color: var(--foreground); font-size: 10px; font-weight: 600; }
+.detail-badges .ver-badge { border: 1px solid var(--border); border-radius: 4px; background: var(--background); color: var(--muted-foreground); font-size: 11px; }
+.detail-grid { gap: 10px; margin-top: 10px; }
+.detail-panel { padding: 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); }
+.detail-panel h4 { margin-bottom: 10px; color: var(--foreground); font-size: 12.5px; font-weight: 600; }
 .detail-facts { gap: 8px; }
-.detail-facts > div { font-size: 9px; }
+.detail-facts > div { grid-template-columns: 116px minmax(0, 1fr); font-size: 12px; }
 .detail-facts dt,
 .detail-empty,
-.native-note { color: var(--muted-foreground); }
-.permission-detail { color: var(--primary); font-size: 9px; }
-.permission-detail code { font-size: 8px; }
-.version-row { font-size: 9px; }
-.detail-actions { padding: 9px 0 1px; }
-.detail-actions :deep(button) { min-height: 31px; border-radius: 6px; font-size: 9px; }
+.native-note { color: var(--muted-foreground); font-size: 12px; }
+.permission-detail { color: var(--primary); font-size: 12px; }
+.permission-detail code { font-size: 11px; }
+.version-row { font-size: 12px; }
+.detail-actions { padding: 10px 0 2px; }
+.detail-actions :deep(button) { min-height: 32px; border-radius: 6px; font-size: 12px; }
 .detail-actions :deep(button.accent) { background: var(--primary); color: var(--primary-foreground); }
 .detail-actions :deep(button.danger) { color: var(--destructive); }
 
-/* 详情视图沿用插件中心的组件不透明度设置。 */
+/* 详情视图沿用插件中心的组件不透明度设置；毛玻璃仅用于外层卡片避免嵌套模糊开销。 */
 .back-button,
 .detail-hero,
 .detail-panel,
@@ -262,12 +285,7 @@ const hasMarketMetadata = computed(() => Boolean(props.item.publisher || props.i
   background: color-mix(in srgb, var(--destructive) calc(var(--component-opacity, 1) * 100%), transparent);
 }
 .detail-hero,
-.detail-panel,
-.detail-icon,
-.detail-badges .chip,
-.detail-badges .ver-badge,
-.back-button,
-.btn {
+.detail-panel {
   backdrop-filter: var(--component-glass-filter, none);
   -webkit-backdrop-filter: var(--component-glass-filter, none);
 }

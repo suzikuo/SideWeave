@@ -51,13 +51,26 @@ export function applyTheme(settings: Settings) {
     previewOpacity: settings.appearance.preview_image_opacity ?? 0.7,
     blur: background_image_blur
   })
-  // 强调色为出厂默认值时不内联注入，让皮肤调色板决定 accent；
-  // 用户显式改过强调色则覆盖皮肤
+  // 强调色为出厂默认值时不内联注入，让皮肤调色板决定主色；
+  // 用户显式改过强调色则覆盖 --primary / --primary-foreground / --ring，
+  // 不污染 shadcn 中性 hover 表面色 --accent，避免浅色模式下按钮悬停对比度异常
   if (/^#[0-9A-Fa-f]{6}$/.test(accent_color) && accent_color.toLowerCase() !== '#006874') {
-    document.documentElement.style.setProperty('--accent', accent_color)
+    const red = Number.parseInt(accent_color.slice(1, 3), 16)
+    const green = Number.parseInt(accent_color.slice(3, 5), 16)
+    const blue = Number.parseInt(accent_color.slice(5, 7), 16)
+    const luminance = red * 0.299 + green * 0.587 + blue * 0.114
+    const primaryForeground = luminance > 165 ? '#111215' : '#fafafa'
+    document.documentElement.style.setProperty('--primary', accent_color)
+    document.documentElement.style.setProperty('--primary-foreground', primaryForeground)
+    document.documentElement.style.setProperty('--ring', accent_color)
+    document.documentElement.style.setProperty('--brand-accent', accent_color)
   } else {
-    document.documentElement.style.removeProperty('--accent')
+    document.documentElement.style.removeProperty('--primary')
+    document.documentElement.style.removeProperty('--primary-foreground')
+    document.documentElement.style.removeProperty('--ring')
+    document.documentElement.style.removeProperty('--brand-accent')
   }
+  document.documentElement.style.removeProperty('--accent')
 
   notificationRoot.style.setProperty('--notification-desktop-background-opacity', String(desktopNotificationOpacity))
   notificationRoot.style.setProperty('--notification-bubble-background-strength', `${Math.round(bubbleNotificationOpacity * 100)}%`)
@@ -200,8 +213,10 @@ function removeUserSkinStyle(): void {
  * 注意：不在此处捕获 settings 快照——OS 主题翻转时由调用方读取最新值，
  * 否则会把 bind 时刻的旧设置回写覆盖新值。
  */
-export function watchSystemTheme(onChange: () => void): void {
-  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', onChange)
+export function watchSystemTheme(onChange: () => void): () => void {
+  const media = window.matchMedia('(prefers-color-scheme: dark)')
+  media.addEventListener('change', onChange)
+  return () => media.removeEventListener('change', onChange)
 }
 
 export function hexToRgba(hex: string, alpha: number): string {
@@ -212,6 +227,12 @@ export function hexToRgba(hex: string, alpha: number): string {
   const g = (v >> 8) & 0xff
   const b = v & 0xff
   return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
+function isFullSettings(value: unknown): value is Settings {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Partial<Settings>
+  return Boolean(candidate.appearance && candidate.general && candidate.plugins && candidate.shortcuts)
 }
 
 /**
@@ -231,8 +252,10 @@ export async function bindSettings(
     applyTheme(latest)
     onUpdate(latest)
   })
-  await listen<Partial<Settings>>(EVENTS.settingsChanged, async () => {
-    const fresh = (await getState()).settings
+  await listen<Settings | Partial<Settings>>(EVENTS.settingsChanged, async (event) => {
+    const fresh = isFullSettings(event.payload)
+      ? event.payload
+      : (await getState()).settings
     latest = fresh
     applyTheme(fresh)
     onUpdate(fresh)

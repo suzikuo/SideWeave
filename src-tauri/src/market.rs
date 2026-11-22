@@ -9,6 +9,7 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
+use std::sync::{OnceLock, RwLock};
 use url::Url;
 
 use sideweave_plugin_api::{
@@ -657,28 +658,52 @@ async fn fetch_document(
     Ok((Some(bytes), etag))
 }
 
+fn shared_http_client(timeout_secs: u64) -> Result<&'static reqwest::Client, String> {
+    if timeout_secs <= 30 {
+        static FAST_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+        if let Some(client) = FAST_CLIENT.get() {
+            return Ok(client);
+        }
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(20))
+            .user_agent(concat!("SideWeave/", env!("CARGO_PKG_VERSION")))
+            .build()
+            .map_err(|error| error.to_string())?;
+        let _ = FAST_CLIENT.set(client);
+        Ok(FAST_CLIENT.get().expect("fast http client initialized"))
+    } else {
+        static DOWNLOAD_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+        if let Some(client) = DOWNLOAD_CLIENT.get() {
+            return Ok(client);
+        }
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(120))
+            .user_agent(concat!("SideWeave/", env!("CARGO_PKG_VERSION")))
+            .build()
+            .map_err(|error| error.to_string())?;
+        let _ = DOWNLOAD_CLIENT.set(client);
+        Ok(DOWNLOAD_CLIENT.get().expect("download http client initialized"))
+    }
+}
+
 pub async fn refresh_market_cache<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<MarketIndex, String> {
     let previous = load_market_cache(app);
     let mirror_prefix = crate::host_settings(app).general.github_mirror;
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(20))
-        .user_agent(concat!("SideWeave/", env!("CARGO_PKG_VERSION")))
-        .build()
-        .map_err(|error| error.to_string())?;
-    let (marketplace_bytes, marketplace_etag) = fetch_document(
-        &client,
-        MARKETPLACE_URL,
-        &mirror_prefix,
-        previous.as_ref().and_then(|cache| cache.marketplace_etag.as_deref()),
-    )
-    .await?;
-    let (publishers_bytes, publishers_etag) = fetch_document(
-        &client,
-        PUBLISHERS_URL,
-        &mirror_prefix,
-        previous.as_ref().and_then(|cache| cache.publishers_etag.as_deref()),
-    )
-    .await?;
+    let client = shared_http_client(20)?;
+    let prev_market_etag = previous.as_ref().and_then(|cache| cache.marketplace_etag.as_deref());
+    let prev_pub_etag = previous.as_ref().and_then(|cache| cache.publishers_etag.as_deref());
+    let ((marketplace_bytes, marketplace_etag), (publishers_bytes, publishers_etag)) =
+        tokio::try_join!(
+            fetch_document(client, MARKETPLACE_URL, &mirror_prefix, prev_market_etag),
+            fetch_document(client, PUBLISHERS_URL, &mirror_prefix, prev_pub_etag),
+        )?;
+
+    // Fast path: both documents returned 304 Not Modified — return cached index with zero disk write.
+    if marketplace_bytes.is_none() && publishers_bytes.is_none() {
+        if let Some(cached) = previous {
+            return Ok(cached.marketplace);
+        }
+    }
 
     let marketplace = match marketplace_bytes {
         Some(bytes) => serde_json::from_slice::<MarketIndex>(&bytes)
@@ -1036,21 +1061,27 @@ pub async fn install<R: Runtime>(
     let item = market_item(items, id).ok_or_else(|| format!("市场中不存在 {id}"))?;
     let version = latest_market_version(item).ok_or_else(|| format!("市场条目 {id} 没有 latest 版本"))?;
     let (key, fingerprint) = package_key(item, version, &publishers)?;
-    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(120))
-        .user_agent(concat!("SideWeave/", env!("CARGO_PKG_VERSION")))
-        .build().map_err(|error| error.to_string())?;
+    let client = shared_http_client(120)?;
     let release = &version.release;
-    let zip = get_asset(app, &client, &release.url).await?;
-    let signature = get_asset(app, &client, &release.signature_url).await?;
-    let checksum = get_asset(app, &client, &release.checksum_url).await?;
-    let expected = parse_checksum(&checksum)?;
-    let digest = sha2::Sha256::digest(&zip);
-    let actual: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
-    if actual != expected {
-        return Err("安装包 SHA256 校验失败，已拒绝安装".into());
-    }
-    verify_minisign(&zip, &signature, &key.public_key)?;
-    let manifest = read_package_manifest(&zip)?;
+    let (zip, signature, checksum) = tokio::try_join!(
+        get_asset(app, client, &release.url),
+        get_asset(app, client, &release.signature_url),
+        get_asset(app, client, &release.checksum_url),
+    )?;
+    let public_key = key.public_key.clone();
+    let (zip, manifest) = tokio::task::spawn_blocking(move || -> Result<(Vec<u8>, Manifest), String> {
+        let expected = parse_checksum(&checksum)?;
+        let digest = sha2::Sha256::digest(&zip);
+        let actual: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+        if actual != expected {
+            return Err("安装包 SHA256 校验失败，已拒绝安装".into());
+        }
+        verify_minisign(&zip, &signature, &public_key)?;
+        let manifest = read_package_manifest(&zip)?;
+        Ok((zip, manifest))
+    })
+    .await
+    .map_err(|error| format!("安装包校验任务异常: {error}"))??;
     let expected_type = if kind == "skin" { "skin" } else { item.package_type.as_str() };
     if manifest.id != item.id || manifest.version != version.version
         || manifest.package_type != expected_type
@@ -1197,6 +1228,7 @@ async fn install_from_bytes_with_policy<R: Runtime>(
         std::fs::write(dest.join(TRUSTED_LOCAL_MARKER), b"trusted-local\n")
             .map_err(|error| format!("写入本地授信标记失败: {error}"))?;
     }
+    invalidate_resource_cache();
     Ok(())
 }
 
@@ -1301,6 +1333,7 @@ pub async fn uninstall<R: Runtime>(
             }
         }
     }
+    invalidate_resource_cache();
     Ok(())
 }
 
@@ -1584,6 +1617,99 @@ fn inject_skin_bridge(html: String, skin_id: &str) -> Result<Vec<u8>, String> {
     Ok(html.into_bytes())
 }
 
+#[derive(Clone)]
+struct CachedPluginResourceMeta {
+    id: String,
+    version: String,
+    runtime: Option<PluginRuntime>,
+    backend: Option<String>,
+    asset_root_canonical: PathBuf,
+}
+
+#[derive(Clone)]
+struct CachedSkinResourceMeta {
+    id: String,
+    version: String,
+    skin_dir_canonical: PathBuf,
+    asset_root_canonical: Option<PathBuf>,
+    has_legacy_css: bool,
+}
+
+fn plugin_resource_cache() -> &'static RwLock<HashMap<PathBuf, CachedPluginResourceMeta>> {
+    static CACHE: OnceLock<RwLock<HashMap<PathBuf, CachedPluginResourceMeta>>> = OnceLock::new();
+    CACHE.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+fn skin_resource_cache() -> &'static RwLock<HashMap<PathBuf, CachedSkinResourceMeta>> {
+    static CACHE: OnceLock<RwLock<HashMap<PathBuf, CachedSkinResourceMeta>>> = OnceLock::new();
+    CACHE.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+pub fn invalidate_resource_cache() {
+    if let Ok(mut guard) = plugin_resource_cache().write() {
+        guard.clear();
+    }
+    if let Ok(mut guard) = skin_resource_cache().write() {
+        guard.clear();
+    }
+}
+
+fn file_etag(version: &str, path: &Path) -> Option<String> {
+    let meta = std::fs::metadata(path).ok()?;
+    let mtime = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    Some(format!("\"{version}-{}-{mtime}\"", meta.len()))
+}
+
+fn etag_matches(request: &Request<Vec<u8>>, etag: &str) -> bool {
+    request
+        .headers()
+        .get(header::IF_NONE_MATCH)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|raw| raw.trim() == etag)
+}
+
+fn resolve_cached_plugin_meta(plugin_dir: &Path) -> Result<CachedPluginResourceMeta, (StatusCode, &'static str)> {
+    if let Ok(guard) = plugin_resource_cache().read() {
+        if let Some(entry) = guard.get(plugin_dir) {
+            return Ok(entry.clone());
+        }
+    }
+    let Some(manifest) = read_manifest(plugin_dir) else {
+        return Err((StatusCode::NOT_FOUND, "插件未安装"));
+    };
+    if manifest.runtime == Some(PluginRuntime::InProcess) {
+        return Err((StatusCode::FORBIDDEN, "插件运行时不允许读取 Web 资源"));
+    }
+    let asset_root = manifest
+        .ui
+        .as_ref()
+        .map(|ui| ui.asset_root.as_str())
+        .filter(|root| !root.is_empty())
+        .unwrap_or(".");
+    if !safe_relative_path(asset_root) && asset_root != "." {
+        return Err((StatusCode::FORBIDDEN, "插件资源根目录无效"));
+    }
+    let Ok(asset_root_canonical) = std::fs::canonicalize(plugin_dir.join(asset_root)) else {
+        return Err((StatusCode::NOT_FOUND, "插件资源根目录不存在"));
+    };
+    let entry = CachedPluginResourceMeta {
+        id: manifest.id,
+        version: manifest.version,
+        runtime: manifest.runtime,
+        backend: manifest.backend,
+        asset_root_canonical,
+    };
+    if let Ok(mut guard) = plugin_resource_cache().write() {
+        guard.insert(plugin_dir.to_path_buf(), entry.clone());
+    }
+    Ok(entry)
+}
+
 pub fn plugin_resource_response<R: Runtime>(
     app: &tauri::AppHandle<R>,
     request: Request<Vec<u8>>,
@@ -1591,8 +1717,8 @@ pub fn plugin_resource_response<R: Runtime>(
     if request.uri().path().starts_with("/@skin/") {
         return skin_resource_response(app, request);
     }
-    if request.method() != tauri::http::Method::GET && request.method() != tauri::http::Method::HEAD
-    {
+    let is_head = request.method() == tauri::http::Method::HEAD;
+    if request.method() != tauri::http::Method::GET && !is_head {
         return plugin_resource_response_error(
             StatusCode::METHOD_NOT_ALLOWED,
             "只允许读取插件资源",
@@ -1604,40 +1730,54 @@ pub fn plugin_resource_response<R: Runtime>(
     };
     let data_dir = paths::app_data_dir(app);
     let plugin_dir = user_plugins_dir(&data_dir).join(&plugin_id);
-    let Some(manifest) = read_manifest(&plugin_dir) else {
-        return plugin_resource_response_error(StatusCode::NOT_FOUND, "插件未安装");
+    let meta = match resolve_cached_plugin_meta(&plugin_dir) {
+        Ok(meta) => meta,
+        Err((status, message)) => return plugin_resource_response_error(status, message),
     };
-    if manifest.runtime == Some(PluginRuntime::InProcess) {
+    if meta.runtime == Some(PluginRuntime::InProcess) {
         return plugin_resource_response_error(
             StatusCode::FORBIDDEN,
             "插件运行时不允许读取 Web 资源",
         );
     }
-    let asset_root = manifest
-        .ui
-        .as_ref()
-        .map(|ui| ui.asset_root.as_str())
-        .filter(|root| !root.is_empty())
-        .unwrap_or(".");
-    if !safe_relative_path(asset_root) && asset_root != "." {
-        return plugin_resource_response_error(StatusCode::FORBIDDEN, "插件资源根目录无效");
-    }
-    let asset_root_path = plugin_dir.join(asset_root);
     let candidate = plugin_dir.join(&resource);
-    let Ok(asset_root_canonical) = std::fs::canonicalize(&asset_root_path) else {
-        return plugin_resource_response_error(StatusCode::NOT_FOUND, "插件资源根目录不存在");
-    };
     let Ok(candidate_canonical) = std::fs::canonicalize(&candidate) else {
         return plugin_resource_response_error(StatusCode::NOT_FOUND, "插件资源不存在");
     };
-    if !candidate_canonical.starts_with(&asset_root_canonical)
+    if !candidate_canonical.starts_with(&meta.asset_root_canonical)
         || matches!(
             resource.as_str(),
             "manifest.json" | "store.json" | TRUSTED_LOCAL_MARKER
         )
-        || manifest.backend.as_deref() == Some(resource.as_str())
+        || meta.backend.as_deref() == Some(resource.as_str())
     {
         return plugin_resource_response_error(StatusCode::FORBIDDEN, "插件资源访问被拒绝");
+    }
+    let etag = file_etag(&meta.version, &candidate_canonical);
+    if let Some(ref tag) = etag {
+        if etag_matches(&request, tag) {
+            return Response::builder()
+                .status(StatusCode::NOT_MODIFIED)
+                .header(header::ETAG, tag.as_str())
+                .header(header::CACHE_CONTROL, "no-cache")
+                .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+                .body(Vec::new())
+                .expect("304 plugin resource response is valid");
+        }
+    }
+    let content_type = resource_content_type(&candidate_canonical);
+    if is_head {
+        let mut builder = Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, content_type)
+            .header(header::CACHE_CONTROL, "no-cache")
+            .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*");
+        if let Some(ref tag) = etag {
+            builder = builder.header(header::ETAG, tag.as_str());
+        }
+        return builder
+            .body(Vec::new())
+            .expect("HEAD plugin resource response is valid");
     }
     let Ok(mut bytes) = std::fs::read(&candidate_canonical) else {
         return plugin_resource_response_error(StatusCode::NOT_FOUND, "插件资源读取失败");
@@ -1653,7 +1793,7 @@ pub fn plugin_resource_response<R: Runtime>(
                 "插件 HTML 不是有效 UTF-8",
             );
         };
-        let Ok(plugin_id_json) = serde_json::to_string(&manifest.id) else {
+        let Ok(plugin_id_json) = serde_json::to_string(&meta.id) else {
             return plugin_resource_response_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "插件 ID 序列化失败",
@@ -1667,14 +1807,15 @@ pub fn plugin_resource_response<R: Runtime>(
         )
         .into_bytes();
     }
-    Response::builder()
+    let mut builder = Response::builder()
         .status(StatusCode::OK)
-        .header(
-            header::CONTENT_TYPE,
-            resource_content_type(&candidate_canonical),
-        )
+        .header(header::CONTENT_TYPE, content_type)
         .header(header::CACHE_CONTROL, "no-cache")
-        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*");
+    if let Some(ref tag) = etag {
+        builder = builder.header(header::ETAG, tag.as_str());
+    }
+    builder
         .body(bytes)
         .expect("static plugin resource response is valid")
 }
@@ -1734,12 +1875,50 @@ fn validate_skin_ui(dir: &Path, ui: &SkinUi) -> Result<(), String> {
     Ok(())
 }
 
+fn resolve_cached_skin_meta(skin_dir: &Path) -> Result<CachedSkinResourceMeta, (StatusCode, String)> {
+    if let Ok(guard) = skin_resource_cache().read() {
+        if let Some(entry) = guard.get(skin_dir) {
+            return Ok(entry.clone());
+        }
+    }
+    let Some(manifest) = read_manifest(skin_dir) else {
+        return Err((StatusCode::NOT_FOUND, "Skin is not installed".into()));
+    };
+    let Ok(skin_dir_canonical) = std::fs::canonicalize(skin_dir) else {
+        return Err((StatusCode::NOT_FOUND, "Skin directory does not exist".into()));
+    };
+    let asset_root_canonical = if let Some(ui) = manifest.skin_ui.as_ref() {
+        validate_skin_ui(skin_dir, ui).map_err(|error| (StatusCode::FORBIDDEN, error))?;
+        let asset_root = if ui.asset_root.is_empty() {
+            "."
+        } else {
+            ui.asset_root.as_str()
+        };
+        let canonical = std::fs::canonicalize(skin_dir.join(asset_root))
+            .map_err(|_| (StatusCode::NOT_FOUND, "Skin assetRoot does not exist".into()))?;
+        Some(canonical)
+    } else {
+        None
+    };
+    let entry = CachedSkinResourceMeta {
+        id: manifest.id,
+        version: manifest.version,
+        skin_dir_canonical,
+        asset_root_canonical,
+        has_legacy_css: skin_dir.join("skin.css").is_file(),
+    };
+    if let Ok(mut guard) = skin_resource_cache().write() {
+        guard.insert(skin_dir.to_path_buf(), entry.clone());
+    }
+    Ok(entry)
+}
+
 fn skin_resource_response<R: Runtime>(
     app: &tauri::AppHandle<R>,
     request: Request<Vec<u8>>,
 ) -> Response<Vec<u8>> {
-    if request.method() != tauri::http::Method::GET && request.method() != tauri::http::Method::HEAD
-    {
+    let is_head = request.method() == tauri::http::Method::HEAD;
+    if request.method() != tauri::http::Method::GET && !is_head {
         return plugin_resource_response_error(
             StatusCode::METHOD_NOT_ALLOWED,
             "Only GET and HEAD are allowed for skin resources",
@@ -1751,54 +1930,62 @@ fn skin_resource_response<R: Runtime>(
     };
     let data_dir = paths::app_data_dir(app);
     let skin_dir = user_skins_dir(&data_dir).join(&skin_id);
-    let Some(manifest) = read_manifest(&skin_dir) else {
-        return plugin_resource_response_error(StatusCode::NOT_FOUND, "Skin is not installed");
+    let meta = match resolve_cached_skin_meta(&skin_dir) {
+        Ok(meta) => meta,
+        Err((status, message)) => return plugin_resource_response_error(status, &message),
     };
     let root_resource = resource.strip_prefix("@root/");
-    let Some(ui) = manifest.skin_ui.as_ref() else {
-        if root_resource.is_none() {
-            return plugin_resource_response_error(StatusCode::NOT_FOUND, "Skin has no custom UI");
-        }
-        // Legacy CSS-only skins may load their packaged image/font assets from the package root.
-        // The request still goes through the canonical path and private-file checks below.
-        if !skin_dir.join("skin.css").is_file() {
+    let Some(ref asset_root_canonical) = meta.asset_root_canonical else {
+        if root_resource.is_none() || !meta.has_legacy_css {
             return plugin_resource_response_error(StatusCode::NOT_FOUND, "Skin has no custom UI");
         }
         let relative = root_resource.unwrap_or_default();
-        return read_skin_resource(&skin_dir, &skin_dir, relative, &manifest.id);
+        return read_skin_resource(
+            &request,
+            is_head,
+            &skin_dir,
+            &meta.skin_dir_canonical,
+            relative,
+            &meta.id,
+            &meta.version,
+        );
     };
-    if let Err(error) = validate_skin_ui(&skin_dir, ui) {
-        return plugin_resource_response_error(StatusCode::FORBIDDEN, &error);
-    }
     if matches!(
         resource.as_str(),
         "manifest.json" | "store.json" | TRUSTED_LOCAL_MARKER
     ) {
         return plugin_resource_response_error(StatusCode::FORBIDDEN, "Skin metadata is private");
     }
-    let asset_root = if ui.asset_root.is_empty() {
-        "."
-    } else {
-        ui.asset_root.as_str()
-    };
-    let root_path = skin_dir.join(asset_root);
-    let Ok(root) = std::fs::canonicalize(&root_path) else {
-        return plugin_resource_response_error(
-            StatusCode::NOT_FOUND,
-            "Skin assetRoot does not exist",
-        );
-    };
     if let Some(root_relative) = root_resource {
-        return read_skin_resource(&skin_dir, &skin_dir, root_relative, &manifest.id);
+        return read_skin_resource(
+            &request,
+            is_head,
+            &skin_dir,
+            &meta.skin_dir_canonical,
+            root_relative,
+            &meta.id,
+            &meta.version,
+        );
     }
-    read_skin_resource(&skin_dir, &root, &resource, &manifest.id)
+    read_skin_resource(
+        &request,
+        is_head,
+        &skin_dir,
+        asset_root_canonical,
+        &resource,
+        &meta.id,
+        &meta.version,
+    )
 }
 
 fn read_skin_resource(
+    request: &Request<Vec<u8>>,
+    is_head: bool,
     skin_dir: &Path,
-    allowed_root: &Path,
+    allowed_root_canonical: &Path,
     relative: &str,
     skin_id: &str,
+    version: &str,
 ) -> Response<Vec<u8>> {
     let private_file = ["manifest.json", "store.json", TRUSTED_LOCAL_MARKER]
         .iter()
@@ -1815,17 +2002,37 @@ fn read_skin_resource(
             "Skin resource does not exist",
         );
     };
-    let Ok(allowed_root) = std::fs::canonicalize(allowed_root) else {
-        return plugin_resource_response_error(
-            StatusCode::NOT_FOUND,
-            "Skin asset root does not exist",
-        );
-    };
-    if !candidate.starts_with(&allowed_root) {
+    if !candidate.starts_with(allowed_root_canonical) {
         return plugin_resource_response_error(
             StatusCode::FORBIDDEN,
             "Skin resource is outside its asset root",
         );
+    }
+    let etag = file_etag(version, &candidate);
+    if let Some(ref tag) = etag {
+        if etag_matches(request, tag) {
+            return Response::builder()
+                .status(StatusCode::NOT_MODIFIED)
+                .header(header::ETAG, tag.as_str())
+                .header(header::CACHE_CONTROL, "no-cache")
+                .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+                .body(Vec::new())
+                .expect("304 skin resource response is valid");
+        }
+    }
+    let content_type = resource_content_type(&candidate);
+    if is_head {
+        let mut builder = Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, content_type)
+            .header(header::CACHE_CONTROL, "no-cache")
+            .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*");
+        if let Some(ref tag) = etag {
+            builder = builder.header(header::ETAG, tag.as_str());
+        }
+        return builder
+            .body(Vec::new())
+            .expect("HEAD skin resource response is valid");
     }
     let Ok(mut bytes) = std::fs::read(&candidate) else {
         return plugin_resource_response_error(
@@ -1852,11 +2059,15 @@ fn read_skin_resource(
         };
         bytes = injected;
     }
-    Response::builder()
+    let mut builder = Response::builder()
         .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, resource_content_type(&candidate))
+        .header(header::CONTENT_TYPE, content_type)
         .header(header::CACHE_CONTROL, "no-cache")
-        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*");
+    if let Some(ref tag) = etag {
+        builder = builder.header(header::ETAG, tag.as_str());
+    }
+    builder
         .body(bytes)
         .expect("static skin resource response is valid")
 }

@@ -82,11 +82,11 @@ let tipFollow = 0
 /** 按当前按钮矩形重定位 tooltip。
  * 左右停靠放图标正上方：鼠标指针只会从落点向右下延伸，上方永远不被指针盖住
  * （含高 DPI 大指针的情况）；顶部停靠放图标下方并留足纵向间距 */
-function placeTip() {
+function placeTip(): boolean {
   const el = tooltipEl.value
   const cur = tooltip.value
   const btn = tipButton
-  if (!el || !cur || !btn) return
+  if (!el || !cur || !btn) return false
   const rect = btn.getBoundingClientRect()
   const w = el.offsetWidth
   const h = el.offsetHeight
@@ -104,11 +104,15 @@ function placeTip() {
     left = rect.left + rect.width / 2 - w / 2
     top = rect.bottom + 22
   }
+  const nextLeft = Math.round(Math.min(Math.max(pad, left), window.innerWidth - w - pad))
+  const nextTop = Math.round(Math.min(Math.max(pad, top), window.innerHeight - h - pad))
+  if (cur.left === nextLeft && cur.top === nextTop) return false
   tooltip.value = {
     label: cur.label,
-    left: Math.min(Math.max(pad, left), window.innerWidth - w - pad),
-    top: Math.min(Math.max(pad, top), window.innerHeight - h - pad)
+    left: nextLeft,
+    top: nextTop
   }
+  return true
 }
 
 function showTip(e: MouseEvent, label: string) {
@@ -120,15 +124,17 @@ function showTip(e: MouseEvent, label: string) {
   window.clearTimeout(tipDelay)
   cancelAnimationFrame(tipFollow)
   // 悬停会触发展开动画，按钮位置会移动：延迟到动画基本稳定后再定位，
-  // 并在后续一段时间内逐帧跟随按钮矩形，保证 tooltip 始终贴着按钮而不被鼠标压住
+  // 坐标稳定连续 3 帧后立即停止 rAF 轮询以节省主线程开销
   tipDelay = window.setTimeout(() => {
     void nextTick(() => {
       placeTip()
       const start = performance.now()
+      let stableFrames = 0
       const follow = () => {
         if (!tooltip.value || !tipButton) return
-        placeTip()
-        if (performance.now() - start < 700) {
+        const moved = placeTip()
+        stableFrames = moved ? 0 : stableFrames + 1
+        if (stableFrames < 3 && performance.now() - start < 700) {
           tipFollow = requestAnimationFrame(follow)
         }
       }
@@ -176,13 +182,14 @@ const orderedPlugins = computed(() =>
 )
 
 // 响应式系统深浅色（matchMedia），供 theme_mode=system 时推导生效主题
-const systemDark = ref(window.matchMedia('(prefers-color-scheme: dark)').matches)
+const darkMediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+const systemDark = ref(darkMediaQuery.matches)
 function onSchemeChange(e: MediaQueryListEvent) {
   systemDark.value = e.matches
 }
-window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', onSchemeChange)
+darkMediaQuery.addEventListener('change', onSchemeChange)
 onUnmounted(() => {
-  window.matchMedia('(prefers-color-scheme: dark)').removeEventListener('change', onSchemeChange)
+  darkMediaQuery.removeEventListener('change', onSchemeChange)
 })
 
 const effectiveTheme = computed(() => {
@@ -202,6 +209,9 @@ const railStyle = computed(() => {
     '--rail-color': hexToRgba(surfaceColor.value, panelOpacity),
     '--rail-img-opacity': String(props.appearance.sidebar_image_opacity),
     '--component-opacity': String(props.appearance.component_opacity),
+    '--rail-backdrop': props.expanded && props.appearance.glass_effect_enabled
+      ? 'blur(18px) saturate(140%)'
+      : 'none',
     borderRadius: props.appearance.sidebar_position === 'top'
       ? `${Math.round(props.appearance.collapsed_width / 2) - 2}px`
       : '24px'
@@ -248,17 +258,25 @@ function openPlugin(pluginId: string) {
   })
 }
 
+let previewOpenedDisposed = false
 let unlistenPreviewOpened: UnlistenFn | null = null
 
 onMounted(async () => {
-  unlistenPreviewOpened = await listen('preview://opened', () => {
+  const stop = await listen('preview://opened', () => {
     hideTip()
   })
+  if (previewOpenedDisposed) {
+    stop()
+    return
+  }
+  unlistenPreviewOpened = stop
 })
 
 onUnmounted(() => {
+  previewOpenedDisposed = true
   if (unlistenPreviewOpened) {
     unlistenPreviewOpened()
+    unlistenPreviewOpened = null
   }
 })
 </script>
@@ -554,7 +572,8 @@ onUnmounted(() => {
   border-radius: 24px;
   background: transparent;
   box-shadow: 0 8px 24px rgb(0 0 0 / 14%);
-  backdrop-filter: blur(18px) saturate(140%);
+  backdrop-filter: var(--rail-backdrop, none);
+  -webkit-backdrop-filter: var(--rail-backdrop, none);
 }
 .pos-top .rail { gap: 6px; padding: 0 8px; }
 .ring {

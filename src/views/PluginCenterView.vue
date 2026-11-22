@@ -4,6 +4,7 @@ import Input from '@/components/ui/input/Input.vue'
 import { TabsList, TabsRoot, TabsTrigger } from 'reka-ui'
 /** 插件中心：浏览 SideWeave 市场，安装 / 更新 / 打开 / 移除独立插件。 */
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import ConfirmDialog from '../ui/ConfirmDialog.vue'
 import Icon from '../ui/Icon.vue'
 import Toast from '../ui/Toast.vue'
 import MarketItemDetail from './MarketItemDetail.vue'
@@ -265,6 +266,39 @@ async function openDeepLinkInstall(id: string) {
   openDetails(item, true)
 }
 
+const confirmDialog = ref<{
+  open: boolean
+  title: string
+  message: string
+  confirmText: string
+  danger: boolean
+}>({ open: false, title: '', message: '', confirmText: '继续安装', danger: false })
+let confirmResolver: ((accepted: boolean) => void) | null = null
+
+function requestConfirm(options: { title: string; message: string; confirmText?: string; danger?: boolean }): Promise<boolean> {
+  if (confirmResolver) {
+    confirmResolver(false)
+    confirmResolver = null
+  }
+  confirmDialog.value = {
+    open: true,
+    title: options.title,
+    message: options.message,
+    confirmText: options.confirmText ?? '确认',
+    danger: Boolean(options.danger)
+  }
+  return new Promise((resolve) => {
+    confirmResolver = resolve
+  })
+}
+
+function resolveConfirm(accepted: boolean) {
+  confirmDialog.value.open = false
+  const resolver = confirmResolver
+  confirmResolver = null
+  resolver?.(accepted)
+}
+
 /** 安装 / 更新（同一命令，下载耗时） */
 async function installById(id: string, name: string) {
   if (isInstalling(id)) return
@@ -281,9 +315,12 @@ async function installById(id: string, name: string) {
     const trust = info.native && info.trustRequired
       ? `\n\n这是首次信任此发布者密钥。\nMinisign 指纹：${info.keyFingerprint}`
       : ''
-    const accepted = window.confirm(
-      `即将安装「${info.name}」v${info.version}\n发布者：${info.publisherName} (${info.publisher})\n类型：${info.packageType}\n请求权限：${permissionSummary}${review}${runtimeNote}${trust}\n\n继续安装？`
-    )
+    const accepted = await requestConfirm({
+      title: `安装插件「${info.name}」v${info.version}`,
+      message: `发布者：${info.publisherName} (${info.publisher})\n类型：${info.packageType}\n请求权限：${permissionSummary}${review}${runtimeNote}${trust}`,
+      confirmText: '继续安装',
+      danger: info.native && !info.verified
+    })
     if (!accepted) return
     if (info.native && info.trustRequired) {
       trustApproval = {
@@ -437,7 +474,7 @@ async function removeInstalled(item: InstalledItem) {
     <section v-else class="market-content" aria-live="polite">
       <div class="results-heading"><div><h3>{{ tabTitle }}</h3><span>显示 {{ visibleCount }} 项</span></div><span v-if="searchQuery || typeFilter !== 'all' || verifiedOnly" class="filter-summary">筛选结果</span></div>
       <div v-if="activeTab === 'discover'" class="results" :class="[viewMode, activeTab]">
-        <article v-for="item in visibleCatalog" :key="item.id" class="market-item market-card" tabindex="0" @click="openDetails(item)" @keydown.enter="openDetails(item)">
+        <article v-for="item in visibleCatalog" :key="item.id" class="market-item market-card" role="button" tabindex="0" @click="openDetails(item)" @keydown.enter="openDetails(item)" @keydown.space.prevent="openDetails(item)">
           <div class="item-head"><div class="product-icon"><Icon name="blocks" :size="21" /></div><div class="item-main">
             <div class="item-title"><strong>{{ item.name }}</strong><span class="ver-badge">v{{ item.latest }}</span><span v-if="installedOf(item.id)" class="installed-badge">已安装</span></div>
             <div class="item-subtitle"><span>{{ item.author || '作者未填写' }}</span></div>
@@ -452,22 +489,22 @@ async function removeInstalled(item: InstalledItem) {
             <p v-if="item.repository" class="item-source">来源：{{ item.repository }}</p>
           </div>
           <div class="item-actions">
-            <Button variant="outline" size="sm" v-if="installedOf(item.id)?.updateVersion" class="btn update" :disabled="isInstalling(item.id)" @click="updateCatalogItem(item)"><Icon name="refresh" :size="13" :class="{ spin: isInstalling(item.id) }" />{{ isInstalling(item.id) ? '更新中…' : '更新' }}</Button>
-            <Button variant="outline" size="sm" v-else-if="installedOf(item.id)" class="btn" @click="openCatalogItem(item)"><Icon name="info" :size="13" />详情</Button>
-            <Button variant="default" size="sm" v-else class="btn accent" :disabled="isInstalling(item.id)" @click="install(item)"><Icon :name="isInstalling(item.id) ? 'refresh' : 'plus'" :size="13" :class="{ spin: isInstalling(item.id) }" />{{ isInstalling(item.id) ? '安装中…' : '安装' }}</Button>
+            <Button variant="outline" size="sm" v-if="installedOf(item.id)?.updateVersion" class="btn update" :disabled="isInstalling(item.id)" @click.stop="updateCatalogItem(item)"><Icon name="refresh" :size="13" :class="{ spin: isInstalling(item.id) }" />{{ isInstalling(item.id) ? '更新中…' : '更新' }}</Button>
+            <Button variant="outline" size="sm" v-else-if="installedOf(item.id)" class="btn" @click.stop="openCatalogItem(item)"><Icon name="info" :size="13" />详情</Button>
+            <Button variant="default" size="sm" v-else class="btn accent" :disabled="isInstalling(item.id)" @click.stop="install(item)"><Icon :name="isInstalling(item.id) ? 'refresh' : 'plus'" :size="13" :class="{ spin: isInstalling(item.id) }" />{{ isInstalling(item.id) ? '安装中…' : '安装' }}</Button>
           </div>
         </article>
       </div>
       <div v-else class="results" :class="[viewMode, activeTab]">
-        <article v-for="item in visibleInstalled" :key="item.id" class="market-item market-card" tabindex="0" @click="openInstalledDetails(item)" @keydown.enter="openInstalledDetails(item)">
+        <article v-for="item in visibleInstalled" :key="item.id" class="market-item market-card" role="button" tabindex="0" @click="openInstalledDetails(item)" @keydown.enter="openInstalledDetails(item)" @keydown.space.prevent="openInstalledDetails(item)">
           <div class="item-head"><div class="product-icon"><Icon name="blocks" :size="21" /></div><div class="item-main">
             <div class="item-title"><strong>{{ item.name }}</strong><span class="ver-badge">v{{ item.version }}</span><span class="installed-badge">已安装</span><span v-if="item.runtime === 'dynamic_library'" class="chip">本地 DLL</span><span v-else-if="item.runtime === 'external_process'" class="chip">独立进程</span><span v-if="item.updateVersion" class="chip warn">有更新</span></div>
             <div class="item-subtitle"><span>{{ item.author || '作者未填写' }}</span></div>
             <p class="item-desc">{{ item.description || '暂无描述' }}</p>
           </div></div>
-          <div class="item-actions"><Button variant="outline" size="sm" class="btn" @click="openInstalled(item)"><Icon name="play" :size="13" />打开</Button>
-            <Button variant="outline" size="sm" v-if="item.updateVersion" class="btn update" :disabled="isInstalling(item.id)" :title="'更新到 ' + item.updateVersion" @click="updateInstalled(item)"><Icon name="refresh" :size="13" :class="{ spin: isInstalling(item.id) }" />{{ isInstalling(item.id) ? '更新中…' : '更新' }}</Button>
-            <Button variant="destructive" size="sm" class="btn danger" :class="{ confirming: confirmRemove[item.id] }" @click="removeInstalled(item)"><Icon name="trash" :size="13" />{{ confirmRemove[item.id] ? '确认移除' : '移除' }}</Button>
+          <div class="item-actions"><Button variant="outline" size="sm" class="btn" @click.stop="openInstalled(item)"><Icon name="play" :size="13" />打开</Button>
+            <Button variant="outline" size="sm" v-if="item.updateVersion" class="btn update" :disabled="isInstalling(item.id)" :title="'更新到 ' + item.updateVersion" @click.stop="updateInstalled(item)"><Icon name="refresh" :size="13" :class="{ spin: isInstalling(item.id) }" />{{ isInstalling(item.id) ? '更新中…' : '更新' }}</Button>
+            <Button variant="destructive" size="sm" class="btn danger" :class="{ confirming: confirmRemove[item.id] }" @click.stop="removeInstalled(item)"><Icon name="trash" :size="13" />{{ confirmRemove[item.id] ? '确认移除' : '移除' }}</Button>
           </div>
         </article>
       </div>
@@ -479,6 +516,15 @@ async function removeInstalled(item: InstalledItem) {
     </section>
 
     </template>
+    <ConfirmDialog
+      :open="confirmDialog.open"
+      :title="confirmDialog.title"
+      :message="confirmDialog.message"
+      :confirm-text="confirmDialog.confirmText"
+      :danger="confirmDialog.danger"
+      @confirm="resolveConfirm(true)"
+      @cancel="resolveConfirm(false)"
+    />
     <Toast :message="toast" :kind="toastKind" @done="toast = ''" />
   </div>
 </template>
@@ -816,45 +862,46 @@ async function removeInstalled(item: InstalledItem) {
 .market { gap: 11px; }
 .market-tabs-root { display: contents; }
 .toolbar { min-height: 34px; padding: 0; border: 0; background: transparent; }
-.chips .chip { border: 1px solid var(--border); border-radius: 5px; background: var(--background); color: var(--muted-foreground); font-size: 9px; }
+.chips .chip { border: 1px solid var(--border); border-radius: 5px; background: var(--background); color: var(--muted-foreground); font-size: 11px; }
 .chips .chip.accent { border-color: color-mix(in srgb, var(--primary) 28%, var(--border)); background: color-mix(in srgb, var(--primary) 7%, var(--background)); color: var(--primary); }
 .market-controls { gap: 8px; padding: 0; border: 0; background: transparent; }
 .search-field { min-height: 34px; border: 1px solid var(--input); border-radius: 6px; background: var(--background); color: var(--muted-foreground); box-shadow: 0 1px 2px rgb(0 0 0 / 3%); }
 .search-field:focus-within { border-color: var(--ring); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 20%, transparent); }
-.search-field input { color: var(--foreground); font-size: 10px; }
-.search-field :deep(.market-search-input) { height: 32px; padding: 0; border: 0; background: transparent; box-shadow: none; font-size: 10px; }
+.search-field input { color: var(--foreground); font-size: 12.5px; }
+.search-field :deep(.market-search-input) { height: 32px; padding: 0; border: 0; background: transparent; box-shadow: none; font-size: 12.5px; }
 .search-field :deep(.market-search-input:focus-visible) { outline: 0; box-shadow: none; }
 .search-field input::placeholder { color: var(--muted-foreground); }
-.select-control { min-height: 34px; border-color: var(--input); border-radius: 6px; background-color: var(--background); color: var(--foreground); font-size: 9px; }
-.market :deep(button.btn) { min-height: 31px; border-radius: 6px; font-size: 9px; }
+.select-control { min-height: 34px; border-color: var(--input); border-radius: 6px; background-color: var(--background); color: var(--foreground); font-size: 12px; }
+.market :deep(button.btn) { min-height: 32px; border-radius: 6px; font-size: 12px; }
 .market :deep(button.btn.accent) { border-color: var(--primary); background: var(--primary); color: var(--primary-foreground); }
-.market-tabs { gap: 3px; border-bottom: 1px solid var(--border); }
-.market-tab { min-height: 32px; padding: 0 10px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; color: var(--muted-foreground); font-size: 10px; }
+.market-tabs { gap: 4px; border-bottom: 1px solid var(--border); }
+.market-tab { min-height: 34px; padding: 0 12px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; color: var(--muted-foreground); font-size: 12.5px; }
 .market-tab[data-state='active'] { border-bottom-color: var(--primary); background: transparent; color: var(--foreground); }
-.market-tab span { border: 1px solid var(--border); border-radius: 4px; background: var(--muted); color: var(--muted-foreground); font-size: 8px; }
+.market-tab span { border: 1px solid var(--border); border-radius: 4px; background: var(--muted); color: var(--muted-foreground); font-size: 10.5px; }
 .results-heading { padding: 0 1px; }
-.results-heading h3 { font-size: 11px; font-weight: 600; }
-.results-heading span, .filter-summary { color: var(--muted-foreground); font-size: 9px; }
-.results { gap: 8px; }
+.results-heading h3 { font-size: 13px; font-weight: 600; }
+.results-heading span, .filter-summary { color: var(--muted-foreground); font-size: 11.5px; }
+.results { gap: 10px; }
 .results.grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 290px), 1fr)); }
-.market-item { padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); box-shadow: 0 1px 2px rgb(0 0 0 / 3%); transition: border-color .15s, box-shadow .15s, transform .15s; }
+.market-item { padding: 13px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); box-shadow: 0 1px 2px rgb(0 0 0 / 3%); transition: border-color .15s, box-shadow .15s, transform .15s; }
 .market-item:hover { transform: translateY(-1px); border-color: color-mix(in srgb, var(--primary) 35%, var(--border)); box-shadow: 0 5px 14px rgb(0 0 0 / 7%); }
-.results.grid .market-item { min-height: 182px; gap: 9px; }
-.product-icon { width: 34px; height: 34px; border: 1px solid var(--border); border-radius: 7px; background: var(--muted); color: var(--foreground); }
-.item-title strong { color: var(--foreground); font-size: 11px; font-weight: 600; }
+.results.grid .market-item { min-height: 186px; gap: 9px; }
+.product-icon { width: 36px; height: 36px; border: 1px solid var(--border); border-radius: 7px; background: var(--muted); color: var(--foreground); }
+.item-title strong { color: var(--foreground); font-size: 13.5px; font-weight: 600; }
 .item-subtitle, .item-desc, .item-source { color: var(--muted-foreground); }
-.item-desc { font-size: 9px; line-height: 1.5; }
-.chip, .ver-badge, .installed-badge, .permission-chip { padding: 2px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--background); color: var(--muted-foreground); font-size: 8px; }
+.item-subtitle { font-size: 11.5px; }
+.item-desc { font-size: 12px; line-height: 1.5; }
+.chip, .ver-badge, .installed-badge, .permission-chip { padding: 2px 7px; border: 1px solid var(--border); border-radius: 4px; background: var(--background); color: var(--muted-foreground); font-size: 11px; }
 .chip.verified, .chip.accent { border-color: color-mix(in srgb, var(--primary) 28%, var(--border)); background: color-mix(in srgb, var(--primary) 7%, var(--background)); color: var(--primary); }
 .chip.warn, .permission-chip { border-color: color-mix(in srgb, var(--warning) 28%, var(--border)); background: color-mix(in srgb, var(--warning) 6%, var(--background)); color: var(--warning); }
 .item-permissions { padding-top: 8px; border-top: 1px solid var(--border); }
-.item-permissions strong { color: var(--muted-foreground); font-size: 8px; }
-.item-actions { gap: 5px; }
+.item-permissions strong { color: var(--muted-foreground); font-size: 11px; }
+.item-actions { gap: 6px; }
 .empty-state { min-height: 150px; border-color: var(--border); border-radius: 8px; background: var(--background); }
-.empty-state strong { color: var(--foreground); font-size: 10px; }
-.empty-state p { color: var(--muted-foreground); font-size: 9px; }
+.empty-state strong { color: var(--foreground); font-size: 13px; }
+.empty-state p { color: var(--muted-foreground); font-size: 12px; }
 
-/* 插件中心的卡片和控件跟随全局组件底色不透明度。 */
+/* 插件中心的卡片和控件跟随全局组件底色不透明度；毛玻璃仅用于外层容器避免多层嵌套模糊开销。 */
 .market-card:hover,
 .market-card:focus-visible {
   background: color-mix(
@@ -869,12 +916,6 @@ async function removeInstalled(item: InstalledItem) {
 .select-control,
 .view-toggle,
 .market-item,
-.product-icon,
-.chip,
-.ver-badge,
-.installed-badge,
-.permission-chip,
-.empty-icon,
 .empty-state {
   backdrop-filter: var(--component-glass-filter, none);
   -webkit-backdrop-filter: var(--component-glass-filter, none);
@@ -895,8 +936,6 @@ async function removeInstalled(item: InstalledItem) {
 }
 .market :deep(button.btn) {
   background: color-mix(in srgb, var(--surface) calc(var(--component-opacity, 1) * 100%), transparent);
-  backdrop-filter: var(--component-glass-filter, none);
-  -webkit-backdrop-filter: var(--component-glass-filter, none);
 }
 .market :deep(button.btn.accent) {
   background: color-mix(in srgb, var(--primary) calc(var(--component-opacity, 1) * 100%), transparent);

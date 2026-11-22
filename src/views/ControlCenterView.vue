@@ -2,10 +2,11 @@
 import Button from '@/components/ui/button/Button.vue'
 import Card from '@/components/ui/card/Card.vue'
 import Switch from '@/components/ui/switch/Switch.vue'
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { getCurrent, onOpenUrl } from '@tauri-apps/plugin-deep-link'
+import ConfirmDialog from '../ui/ConfirmDialog.vue'
 import HotkeyRecorder from '../ui/HotkeyRecorder.vue'
 import Icon from '../ui/Icon.vue'
 import MonitorPicker from '../ui/MonitorPicker.vue'
@@ -33,9 +34,9 @@ import {
 } from '../lib/api'
 import { marketInstalled, marketRefresh, pluginRegistryList } from '../lib/marketApi'
 import type { RuntimePluginInfo } from '../lib/marketApi'
-import { applySkinWithRecommendedOpacity, OPACITY_SETTING_KEYS, resolveSkinOpacityDefaults, type InstalledSkinAppearance, type OpacitySettingKey } from '../lib/skinAppearance'
-import PluginCenterView from './PluginCenterView.vue'
-import SkinCenterView from './SkinCenterView.vue'
+import { applySkinWithRecommendedOpacity, type InstalledSkinAppearance, type OpacitySettingKey } from '../lib/skinAppearance'
+const PluginCenterView = defineAsyncComponent(() => import('./PluginCenterView.vue'))
+const SkinCenterView = defineAsyncComponent(() => import('./SkinCenterView.vue'))
 import {
   appVersionRef,
   autostartRef,
@@ -88,7 +89,7 @@ const narrowSidebarExpanded = ref(false)
 const sidebarBreakpoint = window.matchMedia('(max-width: 900px)')
 const isNarrowSidebar = ref(sidebarBreakpoint.matches)
 const sidebarCompact = computed(() => isNarrowSidebar.value ? !narrowSidebarExpanded.value : sidebarCollapsed.value)
-function toggleSidebar() {
+function toggleNavSidebar() {
   if (isNarrowSidebar.value) {
     narrowSidebarExpanded.value = !narrowSidebarExpanded.value
   } else {
@@ -364,7 +365,6 @@ const activeSkinName = computed(() => {
   const id = activeSkinId.value.slice('user:'.length)
   return userSkins.value.find((skin) => skin.id === id)?.name ?? id
 })
-const activeOpacityDefaults = computed(() => resolveSkinOpacityDefaults(activeSkinId.value, userSkins.value))
 const opacityResetting = ref(false)
 const skinDefaultsReady = ref(false)
 const canResetOpacity = computed(() =>
@@ -394,11 +394,8 @@ async function resetOpacitySettings() {
   if (opacityResetting.value || !settingsRef.value) return
   opacityResetting.value = true
   try {
-    const defaults = activeOpacityDefaults.value
     const skinName = activeSkinName.value
-    for (const key of OPACITY_SETTING_KEYS) {
-      settingsRef.value = await setSetting('appearance', key, defaults[key])
-    }
+    settingsRef.value = await applySkinWithRecommendedOpacity(activeSkinId.value, userSkins.value)
     showToast(`已恢复“${skinName}”的透明度推荐值`, 'success')
   } catch (e) {
     showToast(String(e), 'error')
@@ -487,26 +484,39 @@ function onDocumentVisibilityChange() {
 
 watch(() => props.active, syncSystemPolling, { immediate: true })
 
+let pluginsListenerDisposed = false
 let unlistenPluginsChanged: UnlistenFn | undefined
 onMounted(async () => {
-  unlistenPluginsChanged = await listen<PluginMeta[]>(EVENTS.pluginsChanged, (event) => {
+  const stop = await listen<PluginMeta[]>(EVENTS.pluginsChanged, (event) => {
     pluginsRef.value = event.payload
     void loadSystemInfo()
     if (section.value === 'plugins') void loadPermissionPlugins()
   }).catch(() => undefined)
+  if (pluginsListenerDisposed) {
+    stop?.()
+    return
+  }
+  unlistenPluginsChanged = stop
 })
-onUnmounted(() => unlistenPluginsChanged?.())
+onUnmounted(() => {
+  pluginsListenerDisposed = true
+  unlistenPluginsChanged?.()
+  unlistenPluginsChanged = undefined
+})
 
 function loadControlDataOnce() {
   if (initialLoadDone || initialLoadPromise) return
   initialLoadPromise = (async () => {
     void reloadUserSkins()
     try {
-      const snap = await getState()
-      pluginsRef.value = snap.plugins
-      autostartRef.value = snap.autostart_enabled
-      appVersionRef.value = snap.app_version
-      dataDirRef.value = snap.data_dir
+      // detail/App.vue already populates store.ts on boot; skip duplicate getState() when present.
+      if (!settingsRef.value || !appVersionRef.value) {
+        const snap = await getState()
+        pluginsRef.value = snap.plugins
+        autostartRef.value = snap.autostart_enabled
+        appVersionRef.value = snap.app_version
+        dataDirRef.value = snap.data_dir
+      }
       initialLoadDone = true
     } catch (e) {
       showToast(String(e), 'error')
@@ -830,9 +840,16 @@ async function onBackupExport() {
   }
 }
 
-async function onBackupImport() {
+const backupConfirmOpen = ref(false)
+
+function onBackupImport() {
   if (backupBusy.value) return
-  if (!window.confirm('导入备份会覆盖当前全部设置与插件数据，确定继续？')) return
+  backupConfirmOpen.value = true
+}
+
+async function confirmBackupImport() {
+  backupConfirmOpen.value = false
+  if (backupBusy.value) return
   backupBusy.value = true
   try {
     await backupImport()
@@ -910,17 +927,33 @@ async function routeInstallDeepLinks(urls: string[]) {
   }
 }
 
+let controlDisposed = false
 onMounted(async () => {
-  unlistenUpdateProgress = await listen<UpdateProgress>(EVENTS.updateProgress, (event) => {
+  const stopProgress = await listen<UpdateProgress>(EVENTS.updateProgress, (event) => {
     updateProgress.value = event.payload
   }).catch(() => undefined)
-  unlistenDeepLinks = await onOpenUrl((urls) => { void routeInstallDeepLinks(urls) }).catch(() => null)
+  if (controlDisposed) {
+    stopProgress?.()
+    return
+  }
+  unlistenUpdateProgress = stopProgress
+
+  const stopDeepLinks = await onOpenUrl((urls) => { void routeInstallDeepLinks(urls) }).catch(() => null)
+  if (controlDisposed) {
+    stopDeepLinks?.()
+    return
+  }
+  unlistenDeepLinks = stopDeepLinks
+
   const startUrls = await getCurrent().catch(() => null)
-  if (startUrls?.length) await routeInstallDeepLinks(startUrls)
+  if (!controlDisposed && startUrls?.length) await routeInstallDeepLinks(startUrls)
 })
 onUnmounted(() => {
+  controlDisposed = true
   unlistenDeepLinks?.()
+  unlistenDeepLinks = null
   unlistenUpdateProgress?.()
+  unlistenUpdateProgress = undefined
 })
 
 </script>
@@ -939,7 +972,7 @@ onUnmounted(() => {
           :aria-label="sidebarCompact ? '展开侧边栏' : '收起侧边栏'"
           :aria-expanded="!sidebarCompact"
           aria-controls="control-center-sidebar"
-          @click="toggleSidebar"
+          @click="toggleNavSidebar"
         >
           <Icon name="chevron-left" :size="14" :class="{ flipped: sidebarCompact }" />
         </button>
@@ -995,7 +1028,7 @@ onUnmounted(() => {
 
           <!-- 应用卡片 -->
           <Card class="app-card">
-            <span class="brand-mark lg">AT</span>
+            <span class="brand-mark lg">SW</span>
             <div class="app-meta">
               <strong>SideWeave</strong>
               <small>Rust + Tauri 桌面侧边栏</small>
@@ -1028,11 +1061,11 @@ onUnmounted(() => {
               <strong>{{ workAreaText }}</strong>
               <small class="stat-sub">{{ workAreaScale }}</small>
             </div>
-            <div class="stat-card" style="cursor: pointer" title="点击前往通用设置调整" @click="section = 'general'">
+            <button class="stat-card plugin-stat" type="button" title="点击前往通用设置调整" @click="section = 'general'">
               <span class="stat-label"><Icon name="zap" :size="13" /> 运行模式</span>
               <strong>{{ perfEffectiveLabel }}</strong>
               <small class="stat-sub">{{ perfMemSubText }}</small>
-            </div>
+            </button>
           </div>
 
           <!-- 显示器列表 -->
@@ -1739,7 +1772,7 @@ onUnmounted(() => {
 
           <!-- 应用摘要 -->
           <div class="app-card">
-            <span class="brand-mark lg">AT</span>
+            <span class="brand-mark lg">SW</span>
             <div class="app-meta">
               <strong>SideWeave</strong>
               <small>Rust + Tauri 重构版</small>
@@ -1923,6 +1956,15 @@ onUnmounted(() => {
         </div>
       </div>
     </main>
+    <ConfirmDialog
+      :open="backupConfirmOpen"
+      title="导入备份"
+      message="导入备份会覆盖当前全部设置与插件数据，导入完成后应用会自动重启。确定继续？"
+      confirm-text="确认导入"
+      danger
+      @confirm="confirmBackupImport"
+      @cancel="backupConfirmOpen = false"
+    />
     <Toast :message="toast" :kind="toastKind" @done="toast = ''" />
   </div>
 </template>
@@ -2842,7 +2884,7 @@ section.fill h2 {
 
 .workspace-main { display: flex; flex: 1; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; }
 .workspace-bar { display: flex; flex: none; height: 42px; align-items: center; justify-content: space-between; padding: 0 24px; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--background) calc(var(--detail-panel-opacity, 1) * 100%), transparent); }
-.breadcrumbs { display: flex; align-items: center; gap: 8px; color: var(--muted-foreground); font-size: 10px; }
+.breadcrumbs { display: flex; align-items: center; gap: 8px; color: var(--muted-foreground); font-size: 12px; }
 .breadcrumbs svg { color: color-mix(in srgb, var(--muted-foreground) 65%, transparent); }
 .breadcrumbs strong { color: var(--foreground); font-weight: 500; }
 .workspace-scroll { display: flex; flex: 1; min-height: 0; flex-direction: column; overflow: hidden; overscroll-behavior: contain; }
@@ -2854,7 +2896,7 @@ section.fill h2 {
 .pane.pane-fill > section.fill > .fill-body { display: flex; flex: 1 1 auto; min-width: 0; min-height: 0; overflow: hidden; }
 .pane.pane-fill .fill-content { display: flex; flex: 1 1 auto; width: 100%; height: auto; min-width: 0; min-height: 0; flex-direction: column; }
 .pane > section > h2 { display: none; }
-.group-label { margin: 23px 0 9px; color: var(--foreground); font-size: 12px; font-weight: 600; letter-spacing: -.01em; }
+.group-label { margin: 23px 0 9px; color: var(--foreground); font-size: 13px; font-weight: 600; letter-spacing: -.01em; }
 .card,
 .stat-card,
 .monitor-chip {
@@ -2867,20 +2909,20 @@ section.fill h2 {
 .row-card:first-of-type { border-radius: 7px 7px 0 0; }
 .row-card:last-of-type { border-bottom: 1px solid var(--border); border-radius: 0 0 7px 7px; }
 .row-card + .row-card { border-top: 1px solid var(--border); }
-.row-title { font-size: 11px; font-weight: 550; }
-.row-desc { margin-top: 3px; color: var(--muted-foreground); font-size: 10px; line-height: 1.45; }
+.row-title { font-size: 13px; font-weight: 550; }
+.row-desc { margin-top: 3px; color: var(--muted-foreground); font-size: 12px; line-height: 1.5; }
 .stat-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
 .stat-card { min-height: 78px; padding: 12px 13px; text-align: left; }
-.stat-card strong { margin-top: 4px; font-size: 14px; font-weight: 600; }
-.stat-label { color: var(--muted-foreground); font-size: 10px; }
-.stat-sub { color: var(--muted-foreground); font-size: 9px; }
+.stat-card strong { margin-top: 4px; font-size: 15px; font-weight: 600; }
+.stat-label { color: var(--muted-foreground); font-size: 11.5px; }
+.stat-sub { color: var(--muted-foreground); font-size: 11px; }
 .app-card { display: flex; align-items: center; gap: 12px; padding: 15px; border: 1px solid var(--border); border-radius: 8px; background: color-mix(in srgb, var(--card) calc(var(--component-opacity, 1) * 100%), transparent); box-shadow: 0 1px 2px rgb(0 0 0 / 3%); }
-.app-meta strong { font-size: 13px; font-weight: 600; }
-.app-meta small { color: var(--muted-foreground); font-size: 10px; }
-.badge { padding: 3px 7px; border: 1px solid var(--border); border-radius: 5px; background: var(--background); color: var(--muted-foreground); font-size: 9px; }
+.app-meta strong { font-size: 14px; font-weight: 600; }
+.app-meta small { color: var(--muted-foreground); font-size: 12px; }
+.badge { padding: 3px 8px; border: 1px solid var(--border); border-radius: 5px; background: var(--background); color: var(--muted-foreground); font-size: 11px; }
 .badge.accent { border-color: color-mix(in srgb, var(--primary) 25%, var(--border)); background: color-mix(in srgb, var(--primary) 8%, var(--background)); color: var(--primary); }
 .quick-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
-.quick-list .quick-btn { height: auto; min-height: 38px; justify-content: flex-start; border-radius: 6px; font-size: 10px; }
+.quick-list .quick-btn { height: auto; min-height: 38px; justify-content: flex-start; border-radius: 6px; font-size: 12px; }
 .quick-list .quick-btn :deep(svg) { width: 14px; height: 14px; }
 .plugin-stat { cursor: pointer; }
 .monitor-empty { border: 1px dashed var(--border); background: transparent; box-shadow: none; }
@@ -2888,11 +2930,11 @@ section.fill h2 {
 .switch::after { width: 15px; height: 15px; background: var(--background); box-shadow: 0 1px 2px rgb(0 0 0 / 15%); }
 .switch:checked::after { transform: translateX(15px); }
 .segmented { gap: 2px; padding: 3px; border-radius: 7px; background: var(--muted); }
-.segmented button { min-height: 27px; padding: 5px 9px; border-radius: 5px; font-size: 10px; }
+.segmented button { min-height: 29px; padding: 5px 10px; border-radius: 5px; font-size: 12px; }
 .segmented button.on { background: var(--background); box-shadow: 0 1px 2px rgb(0 0 0 / 8%); }
 .btn,
 .mirror-select,
-.opacity-reset-button { border-radius: 6px; font-size: 10px; }
+.opacity-reset-button { border-radius: 6px; font-size: 12px; }
 
 @media (max-width: 720px) {
   .workspace-bar { padding-inline: 16px; }

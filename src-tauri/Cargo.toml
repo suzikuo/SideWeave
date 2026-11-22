@@ -29,18 +29,14 @@ tauri-plugin-global-shortcut = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 uuid = { version = "1", features = ["v4"] }
-# 二维码识别（toolbox）：图片解码 + QR 解码
+# 二维码识别 / 背景图尺寸校验
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "bmp", "gif"] }
-rqrr = "0.7"
 # 剪贴板历史（arboard）
 arboard = "3"
 chrono = { version = "0.4", features = ["clock"] }
 # GitHub 静态市场：HTTPS、zip 解压、SHA256 与 Minisign 验证
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "json"] }
 tokio = { version = "1", features = ["rt", "macros", "net", "sync", "time", "io-util", "process"] }
-hyper = { version = "1", features = ["http1", "server"] }
-hyper-util = { version = "0.1", features = ["tokio"] }
-http-body-util = "0.1"
 url = "2"
 percent-encoding = "2"
 zip = { version = "2", default-features = false, features = ["deflate"] }

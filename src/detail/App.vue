@@ -6,7 +6,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import Icon from '../ui/Icon.vue'
 const ControlCenterView = defineAsyncComponent(() => import('../views/ControlCenterView.vue'))
 import DetailView from '../views/DetailView.vue'
-import SkinSurfaceHost from '../views/SkinSurfaceHost.vue'
+const SkinSurfaceHost = defineAsyncComponent(() => import('../views/SkinSurfaceHost.vue'))
 import { closeDetail, EVENTS, getMainSurface } from '../lib/api'
 import { bindSettings } from '../lib/theme'
 import {
@@ -21,6 +21,7 @@ import type { Settings } from '../lib/types'
 type Surface = 'sidebar' | 'detail' | 'control'
 
 const surface = ref<Surface>('detail')
+const hasOpenedControl = ref(false)
 const loaded = ref(false)
 const page = ref('')
 const showNativeControl = ref(false)
@@ -29,6 +30,7 @@ const alwaysOnTop = ref(false)
 const nativeWindow = getCurrentWindow()
 const darkQuery = window.matchMedia('(prefers-color-scheme: dark)')
 const systemDark = ref(darkQuery.matches)
+let detailDisposed = false
 let unlistenSurface: UnlistenFn | null = null
 
 function onSchemeChange(event: MediaQueryListEvent) {
@@ -82,9 +84,18 @@ const detailStyle = computed(() => ({
 }))
 
 const isSkinHomePage = computed(() => !page.value || page.value === 'home')
+const isUserSkin = computed(() => Boolean(settingsRef.value?.appearance.skin.startsWith('user:')))
 const isPluginDetailPage = computed(() =>
   Boolean(page.value) && !['home', 'settings', 'market-plugins', 'market-skins'].includes(page.value)
 )
+
+watch(isUserSkin, (active) => {
+  if (!active) skinSurfaceReady.value = false
+})
+
+watch(surface, (next) => {
+  if (next === 'control') hasOpenedControl.value = true
+}, { immediate: true })
 
 watch(() => [surface.value, page.value] as const, () => {
   showNativeControl.value = false
@@ -98,23 +109,43 @@ onMounted(async () => {
   syncPage()
   window.addEventListener('hashchange', syncPage)
   darkQuery.addEventListener('change', onSchemeChange)
-  unlistenSurface = await listen<Surface>(EVENTS.mainSurface, (event) => {
+  const stopSurface = await listen<Surface>(EVENTS.mainSurface, (event) => {
     surface.value = event.payload
     void syncAlwaysOnTop()
   }).catch(() => null)
+  if (detailDisposed) {
+    stopSurface?.()
+    return
+  }
+  unlistenSurface = stopSurface
 
   const snapshot = await bindSettings((fresh: Settings) => {
     settingsRef.value = fresh
   })
+  if (detailDisposed) return
   settingsRef.value = snapshot.settings
   pluginsRef.value = snapshot.plugins
   autostartRef.value = snapshot.autostart_enabled
   appVersionRef.value = snapshot.app_version
   dataDirRef.value = snapshot.data_dir
   surface.value = (await getMainSurface()) === 'control' ? 'control' : 'detail'
+  if (surface.value === 'control') hasOpenedControl.value = true
   await syncAlwaysOnTop()
-  loaded.value = true
+  if (!detailDisposed) loaded.value = true
 })
+
+function onSurfaceContextMenu(event: MouseEvent) {
+  const target = event.target as HTMLElement | null
+  if (
+    target &&
+    (target.tagName === 'INPUT' ||
+      target.tagName === 'TEXTAREA' ||
+      target.isContentEditable)
+  ) {
+    return
+  }
+  event.preventDefault()
+}
 
 function onEscKey(event: KeyboardEvent) {
   if (event.key !== 'Escape' || event.defaultPrevented || surface.value === 'sidebar') return
@@ -124,16 +155,18 @@ function onEscKey(event: KeyboardEvent) {
 
 onMounted(() => window.addEventListener('keydown', onEscKey))
 onUnmounted(() => {
+  detailDisposed = true
   window.removeEventListener('hashchange', syncPage)
   darkQuery.removeEventListener('change', onSchemeChange)
   window.removeEventListener('keydown', onEscKey)
   unlistenSurface?.()
+  unlistenSurface = null
 })
 </script>
 
 <template>
   <template v-if="loaded">
-    <div v-show="surface === 'detail' && !(skinSurfaceReady && isSkinHomePage)" class="detail-surface" :style="detailStyle" @contextmenu.prevent>
+    <div v-show="surface === 'detail' && !(skinSurfaceReady && isSkinHomePage)" class="detail-surface" :style="detailStyle" @contextmenu="onSurfaceContextMenu">
       <div class="detail-shell" :class="{ 'plugin-detail-shell': isPluginDetailPage }">
         <DetailView
           :active="surface === 'detail'"
@@ -144,7 +177,7 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <div v-show="surface === 'control' && (!skinSurfaceReady || showNativeControl)" class="control-surface" :style="detailStyle" @contextmenu.prevent>
+    <div v-show="surface === 'control' && (!skinSurfaceReady || showNativeControl)" class="control-surface" :style="detailStyle" @contextmenu="onSurfaceContextMenu">
       <header class="control-header" data-tauri-drag-region>
         <div class="control-title" data-tauri-drag-region>
           <span class="control-mark" data-tauri-drag-region><Icon name="command" :size="15" /></span>
@@ -179,12 +212,12 @@ onUnmounted(() => {
         </div>
       </header>
       <div class="control-body">
-        <ControlCenterView :active="surface === 'control'" />
+        <ControlCenterView v-if="hasOpenedControl" :active="surface === 'control'" />
       </div>
     </div>
 
     <SkinSurfaceHost
-      v-if="settingsRef && surface !== 'sidebar'"
+      v-if="settingsRef && isUserSkin && surface !== 'sidebar'"
       :skin-id="settingsRef.appearance.skin"
       :surface="surface"
       :enabled="surface === 'control' ? !showNativeControl : isSkinHomePage"

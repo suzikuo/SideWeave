@@ -329,15 +329,15 @@ pub(super) fn update(
         .bubble_background_color
         .trim()
         .is_empty();
-    let (_, _, initial_height) =
-        layout_notifications(surface, notifications, scale, tail_side, area.h);
     let width = surface.width();
     let label = native_label(surface);
 
-    let window = if let Some(window) = app.get_window(label) {
-        window
+    let (window, precomputed_layout) = if let Some(window) = app.get_window(label) {
+        (window, None)
     } else {
-        WindowBuilder::new(app, label)
+        let layout = layout_notifications(surface, notifications, scale, tail_side, area.h);
+        let initial_height = layout.2;
+        let window = WindowBuilder::new(app, label)
             .title("")
             .decorations(false)
             .transparent(false)
@@ -353,7 +353,8 @@ pub(super) fn update(
             .visible(false)
             .inner_size(width, initial_height)
             .build()
-            .map_err(|error| format!("failed to create native notification window: {error}"))?
+            .map_err(|error| format!("failed to create native notification window: {error}"))?;
+        (window, Some((scale, layout)))
     };
     let hwnd = window
         .hwnd()
@@ -365,8 +366,10 @@ pub(super) fn update(
     }
     unsafe { set_window_opacity(hwnd, opacity) };
     let actual_scale = window.scale_factor().unwrap_or(scale).max(0.5);
-    let (visible, card_heights, height) =
-        layout_notifications(surface, notifications, actual_scale, tail_side, area.h);
+    let (visible, card_heights, height) = match precomputed_layout {
+        Some((prev_scale, layout)) if (prev_scale - actual_scale).abs() < 0.001 => layout,
+        _ => layout_notifications(surface, notifications, actual_scale, tail_side, area.h),
+    };
     let target_size = PhysicalSize::new(
         (width * actual_scale).round() as u32,
         (height * actual_scale).round() as u32,
@@ -428,8 +431,10 @@ pub(super) unsafe fn strip_window_chrome(hwnd: HWND) {
     let style_mask =
         (WS_CAPTION | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX) as isize;
     let clean_style = style & !style_mask;
+    let mut changed = false;
     if clean_style != style {
         SetWindowLongPtrW(hwnd, GWL_STYLE, clean_style);
+        changed = true;
     }
 
     let extended_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
@@ -437,17 +442,20 @@ pub(super) unsafe fn strip_window_chrome(hwnd: HWND) {
     let clean_extended_style = (extended_style & !edge_mask) | WS_EX_NOACTIVATE as isize;
     if clean_extended_style != extended_style {
         SetWindowLongPtrW(hwnd, GWL_EXSTYLE, clean_extended_style);
+        changed = true;
     }
 
-    let _ = SetWindowPos(
-        hwnd,
-        std::ptr::null_mut(),
-        0,
-        0,
-        0,
-        0,
-        SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
-    );
+    if changed {
+        let _ = SetWindowPos(
+            hwnd,
+            std::ptr::null_mut(),
+            0,
+            0,
+            0,
+            0,
+            SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+        );
+    }
 }
 
 pub(super) unsafe fn enforce_borderless(hwnd: HWND) -> bool {

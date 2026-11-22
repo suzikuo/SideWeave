@@ -4,6 +4,7 @@ import Input from '@/components/ui/input/Input.vue'
 import { TabsList, TabsRoot, TabsTrigger } from 'reka-ui'
 /** 皮肤中心：浏览 SideWeave 市场，安装 / 应用 / 更新 / 移除用户皮肤 */
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import ConfirmDialog from '../ui/ConfirmDialog.vue'
 import Icon from '../ui/Icon.vue'
 import Toast from '../ui/Toast.vue'
 import MarketItemDetail from './MarketItemDetail.vue'
@@ -222,6 +223,39 @@ async function openDeepLinkInstall(id: string) {
   openDetails(item, true)
 }
 
+const confirmDialog = ref<{
+  open: boolean
+  title: string
+  message: string
+  confirmText: string
+  danger: boolean
+}>({ open: false, title: '', message: '', confirmText: '继续安装', danger: false })
+let confirmResolver: ((accepted: boolean) => void) | null = null
+
+function requestConfirm(options: { title: string; message: string; confirmText?: string; danger?: boolean }): Promise<boolean> {
+  if (confirmResolver) {
+    confirmResolver(false)
+    confirmResolver = null
+  }
+  confirmDialog.value = {
+    open: true,
+    title: options.title,
+    message: options.message,
+    confirmText: options.confirmText ?? '确认',
+    danger: Boolean(options.danger)
+  }
+  return new Promise((resolve) => {
+    confirmResolver = resolve
+  })
+}
+
+function resolveConfirm(accepted: boolean) {
+  confirmDialog.value.open = false
+  const resolver = confirmResolver
+  confirmResolver = null
+  resolver?.(accepted)
+}
+
 /** 安装 / 更新（同一命令，下载耗时） */
 async function installById(id: string, name: string) {
   if (isInstalling(id)) return
@@ -229,9 +263,12 @@ async function installById(id: string, name: string) {
   try {
     const info = await marketInstallInfo(KIND, id)
     const review = info.verified ? '' : '\n市场维护者尚未审核此条目。'
-    const accepted = window.confirm(
-      `即将安装皮肤「${info.name}」v${info.version}\n发布者：${info.publisherName} (${info.publisher})${review}\n\n继续安装？`
-    )
+    const accepted = await requestConfirm({
+      title: `安装皮肤「${info.name}」v${info.version}`,
+      message: `发布者：${info.publisherName} (${info.publisher})${review}`,
+      confirmText: '继续安装',
+      danger: !info.verified
+    })
     if (!accepted) return
     await marketInstall(KIND, id)
     showToast(`「${name}」安装完成，可点击「应用」启用`, 'success')
@@ -370,7 +407,7 @@ async function removeInstalled(item: InstalledItem) {
     <section v-else class="market-content" aria-live="polite">
       <div class="results-heading"><div><h3>{{ tabTitle }}</h3><span>显示 {{ visibleCount }} 项</span></div><span v-if="searchQuery" class="filter-summary">搜索结果</span></div>
       <div v-if="activeTab === 'discover'" class="results" :class="[viewMode, activeTab]">
-        <article v-for="item in visibleCatalog" :key="item.id" class="market-item market-card" tabindex="0" @click="openDetails(item)" @keydown.enter="openDetails(item)">
+        <article v-for="item in visibleCatalog" :key="item.id" class="market-item market-card" role="button" tabindex="0" @click="openDetails(item)" @keydown.enter="openDetails(item)" @keydown.space.prevent="openDetails(item)">
           <div class="item-head">
             <div class="product-icon"><Icon name="palette" :size="21" /></div>
             <div class="item-main">
@@ -389,20 +426,20 @@ async function removeInstalled(item: InstalledItem) {
             <p v-if="item.repository" class="item-source">来源：{{ item.repository }}</p>
           </div>
           <div class="item-actions">
-            <Button variant="outline" size="sm" v-if="installedOf(item.id)?.updateVersion" class="btn update" :disabled="isInstalling(item.id)" @click="updateCatalogItem(item)">
+            <Button variant="outline" size="sm" v-if="installedOf(item.id)?.updateVersion" class="btn update" :disabled="isInstalling(item.id)" @click.stop="updateCatalogItem(item)">
               <Icon name="refresh" :size="13" :class="{ spin: isInstalling(item.id) }" />{{ isInstalling(item.id) ? '更新中…' : '更新' }}
             </Button>
-            <Button variant="outline" size="sm" v-else-if="installedOf(item.id)" class="btn apply" :disabled="isCurrent(item.id)" @click="applyCatalogItem(item)">
+            <Button variant="outline" size="sm" v-else-if="installedOf(item.id)" class="btn apply" :disabled="isCurrent(item.id)" @click.stop="applyCatalogItem(item)">
               <Icon name="info" :size="13" />{{ isCurrent(item.id) ? '使用中' : '详情' }}
             </Button>
-            <Button variant="default" size="sm" v-else class="btn accent" :disabled="isInstalling(item.id)" @click="install(item)">
+            <Button variant="default" size="sm" v-else class="btn accent" :disabled="isInstalling(item.id)" @click.stop="install(item)">
               <Icon :name="isInstalling(item.id) ? 'refresh' : 'plus'" :size="13" :class="{ spin: isInstalling(item.id) }" />{{ isInstalling(item.id) ? '安装中…' : '安装' }}
             </Button>
           </div>
         </article>
       </div>
       <div v-else class="results" :class="[viewMode, activeTab]">
-        <article v-for="item in visibleInstalled" :key="item.id" class="market-item market-card" tabindex="0" @click="openInstalledDetails(item)" @keydown.enter="openInstalledDetails(item)">
+        <article v-for="item in visibleInstalled" :key="item.id" class="market-item market-card" role="button" tabindex="0" @click="openInstalledDetails(item)" @keydown.enter="openInstalledDetails(item)" @keydown.space.prevent="openInstalledDetails(item)">
           <div class="item-head">
             <div class="product-icon"><Icon name="palette" :size="21" /></div>
             <div class="item-main">
@@ -414,11 +451,11 @@ async function removeInstalled(item: InstalledItem) {
             </div>
           </div>
           <div class="item-actions">
-            <Button variant="outline" size="sm" class="btn apply" :disabled="isCurrent(item.id)" @click="applySkin(item)"><Icon name="check" :size="13" />{{ isCurrent(item.id) ? '使用中' : '应用' }}</Button>
-            <Button variant="outline" size="sm" v-if="item.updateVersion" class="btn update" :disabled="isInstalling(item.id)" :title="'更新到 ' + item.updateVersion" @click="updateInstalled(item)">
+            <Button variant="outline" size="sm" class="btn apply" :disabled="isCurrent(item.id)" @click.stop="applySkin(item)"><Icon name="check" :size="13" />{{ isCurrent(item.id) ? '使用中' : '应用' }}</Button>
+            <Button variant="outline" size="sm" v-if="item.updateVersion" class="btn update" :disabled="isInstalling(item.id)" :title="'更新到 ' + item.updateVersion" @click.stop="updateInstalled(item)">
               <Icon name="refresh" :size="13" :class="{ spin: isInstalling(item.id) }" />{{ isInstalling(item.id) ? '更新中…' : '更新' }}
             </Button>
-            <Button variant="destructive" size="sm" class="btn danger" :class="{ confirming: confirmRemove[item.id] }" @click="removeInstalled(item)"><Icon name="trash" :size="13" />{{ confirmRemove[item.id] ? '确认移除' : '移除' }}</Button>
+            <Button variant="destructive" size="sm" class="btn danger" :class="{ confirming: confirmRemove[item.id] }" @click.stop="removeInstalled(item)"><Icon name="trash" :size="13" />{{ confirmRemove[item.id] ? '确认移除' : '移除' }}</Button>
           </div>
         </article>
       </div>
@@ -430,6 +467,15 @@ async function removeInstalled(item: InstalledItem) {
       </div>
     </section>
     </template>
+    <ConfirmDialog
+      :open="confirmDialog.open"
+      :title="confirmDialog.title"
+      :message="confirmDialog.message"
+      :confirm-text="confirmDialog.confirmText"
+      :danger="confirmDialog.danger"
+      @confirm="resolveConfirm(true)"
+      @cancel="resolveConfirm(false)"
+    />
     <Toast :message="toast" :kind="toastKind" @done="toast = ''" />
   </div>
 </template>
@@ -761,39 +807,40 @@ async function removeInstalled(item: InstalledItem) {
 .market { gap: 11px; }
 .market-tabs-root { display: contents; }
 .market-heading { min-height: 30px; padding: 0; border: 0; }
-.market-summary .chip { border: 1px solid var(--border); border-radius: 5px; background: var(--background); color: var(--muted-foreground); font-size: 9px; }
+.market-summary .chip { border: 1px solid var(--border); border-radius: 5px; background: var(--background); color: var(--muted-foreground); font-size: 11px; }
 .market-summary .chip.accent { border-color: color-mix(in srgb, var(--primary) 28%, var(--border)); background: color-mix(in srgb, var(--primary) 7%, var(--background)); color: var(--primary); }
 .market-controls { gap: 8px; padding: 0; border: 0; background: transparent; }
-.search-field { min-height: 34px; border: 1px solid var(--input); border-radius: 6px; background: var(--background); color: var(--muted-foreground); box-shadow: 0 1px 2px rgb(0 0 0 / 3%); }
+.search-field { min-height: 34px; border: 1px solid var(--input); border-radius: 6px; background: color-mix(in srgb, var(--background) calc(var(--component-opacity, 1) * 100%), transparent); color: var(--muted-foreground); box-shadow: 0 1px 2px rgb(0 0 0 / 3%); backdrop-filter: var(--component-glass-filter, none); -webkit-backdrop-filter: var(--component-glass-filter, none); }
 .search-field:focus-within { border-color: var(--ring); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 20%, transparent); }
-.search-field input { color: var(--foreground); font-size: 10px; }
-.search-field :deep(.market-search-input) { height: 32px; padding: 0; border: 0; background: transparent; box-shadow: none; font-size: 10px; }
+.search-field input { color: var(--foreground); font-size: 12.5px; }
+.search-field :deep(.market-search-input) { height: 32px; padding: 0; border: 0; background: transparent; box-shadow: none; font-size: 12.5px; }
 .search-field :deep(.market-search-input:focus-visible) { outline: 0; box-shadow: none; }
 .search-field input::placeholder { color: var(--muted-foreground); }
-.select-control { min-height: 34px; border-color: var(--input); border-radius: 6px; background-color: var(--background); color: var(--foreground); font-size: 9px; }
-.market :deep(button.btn) { min-height: 31px; border-radius: 6px; font-size: 9px; }
+.select-control { min-height: 34px; border-color: var(--input); border-radius: 6px; background-color: color-mix(in srgb, var(--background) calc(var(--component-opacity, 1) * 100%), transparent); color: var(--foreground); font-size: 12px; backdrop-filter: var(--component-glass-filter, none); -webkit-backdrop-filter: var(--component-glass-filter, none); }
+.market :deep(button.btn) { min-height: 32px; border-radius: 6px; font-size: 12px; }
 .market :deep(button.btn.accent) { border-color: var(--primary); background: var(--primary); color: var(--primary-foreground); }
-.market-tabs { gap: 3px; border-bottom: 1px solid var(--border); }
-.market-tab { min-height: 32px; padding: 0 10px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; color: var(--muted-foreground); font-size: 10px; }
+.market-tabs { gap: 4px; border-bottom: 1px solid var(--border); }
+.market-tab { min-height: 34px; padding: 0 12px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; color: var(--muted-foreground); font-size: 12.5px; }
 .market-tab[data-state='active'] { border-bottom-color: var(--primary); background: transparent; color: var(--foreground); }
-.market-tab span { border: 1px solid var(--border); border-radius: 4px; background: var(--muted); color: var(--muted-foreground); font-size: 8px; }
+.market-tab span { border: 1px solid var(--border); border-radius: 4px; background: var(--muted); color: var(--muted-foreground); font-size: 10.5px; }
 .results-heading { padding: 0 1px; }
-.results-heading h3 { font-size: 11px; font-weight: 600; }
-.results-heading span, .filter-summary { color: var(--muted-foreground); font-size: 9px; }
-.results { gap: 8px; }
+.results-heading h3 { font-size: 13px; font-weight: 600; }
+.results-heading span, .filter-summary { color: var(--muted-foreground); font-size: 11.5px; }
+.results { gap: 10px; }
 .results.grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 290px), 1fr)); }
-.market-item { padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); box-shadow: 0 1px 2px rgb(0 0 0 / 3%); transition: border-color .15s, box-shadow .15s, transform .15s; }
+.market-item { padding: 13px; border: 1px solid var(--border); border-radius: 8px; background: color-mix(in srgb, var(--card) calc(var(--component-opacity, 1) * 100%), transparent); box-shadow: 0 1px 2px rgb(0 0 0 / 3%); backdrop-filter: var(--component-glass-filter, none); -webkit-backdrop-filter: var(--component-glass-filter, none); transition: border-color .15s, box-shadow .15s, transform .15s; }
 .market-item:hover { transform: translateY(-1px); border-color: color-mix(in srgb, var(--primary) 35%, var(--border)); box-shadow: 0 5px 14px rgb(0 0 0 / 7%); }
-.results.grid .market-item { min-height: 154px; gap: 9px; }
-.product-icon { width: 34px; height: 34px; border: 1px solid var(--border); border-radius: 7px; background: var(--muted); color: var(--foreground); }
-.item-title strong { color: var(--foreground); font-size: 11px; font-weight: 600; }
+.results.grid .market-item { min-height: 158px; gap: 9px; }
+.product-icon { width: 36px; height: 36px; border: 1px solid var(--border); border-radius: 7px; background: var(--muted); color: var(--foreground); }
+.item-title strong { color: var(--foreground); font-size: 13.5px; font-weight: 600; }
 .item-subtitle, .item-desc, .item-source { color: var(--muted-foreground); }
-.item-desc { font-size: 9px; line-height: 1.5; }
-.chip, .ver-badge, .installed-badge { padding: 2px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--background); color: var(--muted-foreground); font-size: 8px; }
+.item-subtitle { font-size: 11.5px; }
+.item-desc { font-size: 12px; line-height: 1.5; }
+.chip, .ver-badge, .installed-badge { padding: 2px 7px; border: 1px solid var(--border); border-radius: 4px; background: var(--background); color: var(--muted-foreground); font-size: 11px; }
 .chip.verified, .chip.accent { border-color: color-mix(in srgb, var(--primary) 28%, var(--border)); background: color-mix(in srgb, var(--primary) 7%, var(--background)); color: var(--primary); }
 .chip.warn { border-color: color-mix(in srgb, var(--warning) 28%, var(--border)); background: color-mix(in srgb, var(--warning) 6%, var(--background)); color: var(--warning); }
-.item-actions { gap: 5px; }
-.empty-state { min-height: 150px; border-color: var(--border); border-radius: 8px; background: var(--background); }
-.empty-state strong { color: var(--foreground); font-size: 10px; }
-.empty-state p { color: var(--muted-foreground); font-size: 9px; }
+.item-actions { gap: 6px; }
+.empty-state { min-height: 150px; border-color: var(--border); border-radius: 8px; background: color-mix(in srgb, var(--background) calc(var(--component-opacity, 1) * 100%), transparent); }
+.empty-state strong { color: var(--foreground); font-size: 13px; }
+.empty-state p { color: var(--muted-foreground); font-size: 12px; }
 </style>

@@ -218,21 +218,22 @@ button[data-slot='button']:focus-visible {
 
 .detail-surface *::-webkit-scrollbar,
 .control-surface *::-webkit-scrollbar {
-  width: 2px;
-  height: 2px;
+  width: 6px;
+  height: 6px;
 }
 
 .detail-surface *::-webkit-scrollbar-thumb,
 .control-surface *::-webkit-scrollbar-thumb {
-  border: 0;
+  border: 1px solid transparent;
   border-radius: 999px;
-  background: var(--border-strong);
-  background-clip: border-box;
+  background: color-mix(in srgb, var(--border-strong) 80%, transparent);
+  background-clip: padding-box;
 }
 
 .detail-surface *::-webkit-scrollbar-thumb:hover,
 .control-surface *::-webkit-scrollbar-thumb:hover {
   background: var(--text-muted);
+  background-clip: padding-box;
 }
 
 /* The preview panel still scrolls; only its scrollbar chrome is hidden. */

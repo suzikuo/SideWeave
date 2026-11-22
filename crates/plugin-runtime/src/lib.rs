@@ -114,6 +114,11 @@ impl PluginExecutor {
         Ok(response)
     }
 
+    pub fn activate(&self) -> Result<PluginResponse, RuntimeError> {
+        let request = lifecycle_request(self.id.clone(), PluginRequestKind::Activate);
+        self.call(request)
+    }
+
     pub fn shutdown_for_unload(&self) -> Result<(), RuntimeError> {
         let mut state = self
             .backend

@@ -458,6 +458,8 @@ async function onMessage(e: MessageEvent) {
   }
 }
 
+let hostDisposed = false
+
 onMounted(() => {
   window.addEventListener('message', onMessage)
   themeObserver = new MutationObserver(syncFrameTheme)
@@ -478,11 +480,16 @@ onMounted(() => {
       event: payload
     })
   }).then((stop) => {
+    if (hostDisposed) {
+      stop()
+      return
+    }
     unlistenPluginEvent = stop
   })
 })
 
 onUnmounted(() => {
+  hostDisposed = true
   clearFrameLoadTimer()
   pluginSlots.length = 0
   frameRefs.clear()

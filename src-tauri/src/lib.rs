@@ -233,8 +233,9 @@ pub(crate) fn plugin_permission_granted<R: tauri::Runtime>(
     plugin_id: &sideweave_plugin_api::PluginId,
     permission: &str,
 ) -> bool {
-    host(app)
-        .settings_clone()
+    let state = host(app);
+    let settings = state.settings.lock().unwrap();
+    settings
         .plugins
         .permission_grants
         .get(plugin_id.as_str())
@@ -430,7 +431,10 @@ pub(crate) fn monitor_scale<R: tauri::Runtime>(app: &AppHandle<R>) -> f64 {
 }
 
 pub(crate) fn interface_scale<R: tauri::Runtime>(app: &AppHandle<R>) -> f64 {
-    host_settings(app)
+    host(app)
+        .settings
+        .lock()
+        .unwrap()
         .appearance
         .interface_scale
         .clamp(0.7, 1.6)
@@ -804,8 +808,8 @@ fn schedule_sidebar_auto_hide<R: tauri::Runtime>(app: &AppHandle<R>) {
     let hover_token = *host(app).hover_token.lock().unwrap();
     let collapse_gen = host(app).collapse_gen.load(Ordering::SeqCst);
     let handle = app.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(delay));
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(delay)).await;
         let main_handle = handle.clone();
         let _ = handle.run_on_main_thread(move || {
             let state = host(&main_handle);
@@ -813,7 +817,7 @@ fn schedule_sidebar_auto_hide<R: tauri::Runtime>(app: &AppHandle<R>) {
                 || !expanded_flag(&main_handle)
                 || state.collapse_gen.load(Ordering::SeqCst) != collapse_gen
                 || *state.hover_token.lock().unwrap() != hover_token
-                || !state.settings_clone().general.enable_mouse_hover
+                || !state.settings.lock().unwrap().general.enable_mouse_hover
             {
                 return;
             }
@@ -874,48 +878,88 @@ fn monitor_layout<R: tauri::Runtime>(app: &AppHandle<R>) -> Option<MonitorLayout
     Some(layout)
 }
 
-/// Tauri does not emit a dedicated display-topology event. Poll the small
-/// monitor snapshot periodically so hotplug and display arrangement changes
-/// can reposition the sidebar and trigger its normal auto-hide check.
+fn check_and_apply_monitor_layout<R: tauri::Runtime>(
+    app: &AppHandle<R>,
+    previous_layout: &Arc<Mutex<Option<MonitorLayout>>>,
+) {
+    let Some(current_layout) = monitor_layout(app) else {
+        return;
+    };
+    let changed = {
+        let Ok(mut previous) = previous_layout.lock() else {
+            return;
+        };
+        if previous.as_ref() == Some(&current_layout) {
+            false
+        } else {
+            *previous = Some(current_layout);
+            true
+        }
+    };
+    if !changed {
+        return;
+    }
+
+    let _ = app.emit("system://monitors-changed", ());
+    if current_surface(app) == MainSurface::Sidebar {
+        host(app).collapse_gen.fetch_add(1, Ordering::SeqCst);
+        apply_sidebar(app);
+        schedule_sidebar_auto_hide(app);
+    }
+}
+
+/// Listen for Windows display/work-area topology changes via Win32 messages
+/// (zero idle CPU wakeups), falling back to polling only when unavailable.
 fn watch_monitor_layout<R: tauri::Runtime>(app: &AppHandle<R>) {
     let previous_layout = Arc::new(Mutex::new(monitor_layout(app)));
-    let handle = app.clone();
-    std::thread::spawn(move || loop {
-        std::thread::sleep(Duration::from_secs(1));
-        let main_handle = handle.clone();
-        let previous_layout = Arc::clone(&previous_layout);
-        if handle
-            .run_on_main_thread(move || {
-                let Some(current_layout) = monitor_layout(&main_handle) else {
-                    return;
-                };
-                let changed = {
-                    let Ok(mut previous) = previous_layout.lock() else {
-                        return;
-                    };
-                    if previous.as_ref() == Some(&current_layout) {
-                        false
-                    } else {
-                        *previous = Some(current_layout);
-                        true
-                    }
-                };
-                if !changed {
-                    return;
-                }
 
-                let _ = main_handle.emit("system://monitors-changed", ());
-                if current_surface(&main_handle) == MainSurface::Sidebar {
-                    host(&main_handle)
-                        .collapse_gen
-                        .fetch_add(1, Ordering::SeqCst);
-                    apply_sidebar(&main_handle);
-                    schedule_sidebar_auto_hide(&main_handle);
+    #[cfg(windows)]
+    {
+        if let Some(sidebar) = sidebar_window(app) {
+            if let Ok(hwnd) = sidebar.hwnd() {
+                let debounce_gen = Arc::new(AtomicU64::new(0));
+                let handle = app.clone();
+                let prev = Arc::clone(&previous_layout);
+                let installed = platform::install_display_change_hook(
+                    hwnd.0,
+                    Arc::new(move || {
+                        let gen = debounce_gen.fetch_add(1, Ordering::SeqCst) + 1;
+                        let gen_ref = Arc::clone(&debounce_gen);
+                        let app_handle = handle.clone();
+                        let prev_ref = Arc::clone(&prev);
+                        tauri::async_runtime::spawn(async move {
+                            tokio::time::sleep(Duration::from_millis(160)).await;
+                            if gen_ref.load(Ordering::SeqCst) != gen {
+                                return;
+                            }
+                            let main_handle = app_handle.clone();
+                            let _ = app_handle.run_on_main_thread(move || {
+                                check_and_apply_monitor_layout(&main_handle, &prev_ref);
+                            });
+                        });
+                    }),
+                );
+                if installed {
+                    return;
                 }
-            })
-            .is_err()
-        {
-            break;
+            }
+        }
+    }
+
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            let main_handle = handle.clone();
+            let previous_layout = Arc::clone(&previous_layout);
+            if handle
+                .run_on_main_thread(move || {
+                    check_and_apply_monitor_layout(&main_handle, &previous_layout);
+                })
+                .is_err()
+            {
+                break;
+            }
         }
     });
 }
@@ -1105,7 +1149,14 @@ fn save_detail_geom<R: tauri::Runtime>(app: &AppHandle<R>, force: bool) {
     };
     let Ok(size) = win.outer_size() else { return };
     let v = serde_json::json!({ "x": pos.x, "y": pos.y, "w": size.width, "h": size.height });
-    let _ = paths::save_json_atomic(&detail_geom_path(app), &v);
+    let path = detail_geom_path(app);
+    if force {
+        let _ = paths::save_json_atomic(&path, &v);
+    } else {
+        tauri::async_runtime::spawn_blocking(move || {
+            let _ = paths::save_json_atomic(&path, &v);
+        });
+    }
 }
 
 fn show_detail<R: tauri::Runtime>(app: &AppHandle<R>, page: &str) -> Result<(), String> {
@@ -1219,8 +1270,8 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
                 static SEQ: AtomicU64 = AtomicU64::new(0);
                 let seq = SEQ.fetch_add(1, Ordering::SeqCst) + 1;
                 let handle = tray.app_handle().clone();
-                std::thread::spawn(move || {
-                    std::thread::sleep(Duration::from_millis(260));
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(Duration::from_millis(260)).await;
                     if SEQ.load(Ordering::SeqCst) == seq {
                         toggle(&handle);
                     }
@@ -1712,9 +1763,11 @@ fn set_plugin_enabled(
         persist_settings(&app, &snapshot)?;
         snapshot
     };
+    let plugins = rail_metas(&app, &s);
     let _ = app.emit("settings://changed", &s);
+    let _ = app.emit("plugins://changed", &plugins);
     apply_sidebar(&app);
-    Ok(rail_metas(&app, &s))
+    Ok(plugins)
 }
 
 #[tauri::command]
@@ -1740,9 +1793,11 @@ fn set_plugin_sidebar_visible(
         persist_settings(&app, &snapshot)?;
         snapshot
     };
+    let plugins = rail_metas(&app, &s);
     let _ = app.emit("settings://changed", &s);
+    let _ = app.emit("plugins://changed", &plugins);
     apply_sidebar(&app);
-    Ok(rail_metas(&app, &s))
+    Ok(plugins)
 }
 
 #[tauri::command]
@@ -1760,9 +1815,11 @@ fn set_plugin_order(app: AppHandle, order: Vec<String>) -> Result<Vec<PluginMeta
         persist_settings(&app, &snapshot)?;
         snapshot
     };
+    let plugins = rail_metas(&app, &s);
     let _ = app.emit("settings://changed", &s);
+    let _ = app.emit("plugins://changed", &plugins);
     apply_sidebar(&app);
-    Ok(rail_metas(&app, &s))
+    Ok(plugins)
 }
 
 #[tauri::command]
@@ -1828,48 +1885,6 @@ fn open_control_center_sync<R: tauri::Runtime>(app: &AppHandle<R>) -> Result<(),
     Ok(())
 }
 
-#[cfg(any())]
-fn open_control_center_sync_legacy<R: tauri::Runtime>(app: &AppHandle<R>) -> Result<(), String> {
-    if let Some(win) = app.get_webview_window("control") {
-        let _ = win.show();
-        let _ = win.set_focus();
-        return Ok(());
-    }
-    // 独立宽窗口：原生标题栏（拖拽/缩放/关闭齐全），非置顶，进任务栏；
-    // 位置/尺寸跨会话记忆（control_window.json，无记忆回落默认居中）
-    let builder = WebviewWindowBuilder::new(app, "control", WebviewUrl::App("control.html".into()))
-        .title("SideWeave 控制中心")
-        .inner_size(1040.0, 780.0)
-        .min_inner_size(880.0, 640.0)
-        .resizable(true)
-        .visible(false);
-    let win = match load_control_geom(app) {
-        Some((x, y, w, h)) => {
-            let scale = crate::monitor_scale(app);
-            builder
-                // 记忆的是物理像素，而 builder.position/inner_size 吃逻辑像素：
-                // 不除缩放的话，高 DPI 屏上每次重启都会放大 scale 倍（表现为窗口越来越大）
-                .position(f64::from(x) / scale, f64::from(y) / scale)
-                .inner_size(f64::from(w) / scale, f64::from(h) / scale)
-                .build()
-                .map_err(|e| e.to_string())?
-        }
-        None => builder.center().build().map_err(|e| e.to_string())?,
-    };
-    {
-        let h = app.clone();
-        win.on_window_event(move |e| match e {
-            tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => {
-                save_control_geom(&h);
-            }
-            _ => {}
-        });
-    }
-    let _ = win.show();
-    let _ = win.set_focus();
-    Ok(())
-}
-
 fn control_geom_path<R: tauri::Runtime>(app: &AppHandle<R>) -> PathBuf {
     paths::app_data_dir(app).join("control_window.json")
 }
@@ -1917,7 +1932,14 @@ fn save_control_geom<R: tauri::Runtime>(app: &AppHandle<R>, force: bool) {
         return;
     }
     let v = serde_json::json!({ "x": pos.x, "y": pos.y, "w": size.width, "h": size.height });
-    let _ = paths::save_json_atomic(&control_geom_path(app), &v);
+    let path = control_geom_path(app);
+    if force {
+        let _ = paths::save_json_atomic(&path, &v);
+    } else {
+        tauri::async_runtime::spawn_blocking(move || {
+            let _ = paths::save_json_atomic(&path, &v);
+        });
+    }
 }
 
 #[tauri::command]
@@ -2120,21 +2142,35 @@ pub(crate) fn plugin_call_blocking(
     app: &AppHandle,
     request: PluginRequest,
 ) -> Result<PluginResponse, String> {
-    if market::is_web_plugin(&paths::app_data_dir(app), request.plugin_id.as_str()) {
-        return market::web_plugin_call(app, request);
-    }
     let state = host(app);
     let plugin_id = request.plugin_id.clone();
-    let executor = {
+    let (is_web_sandbox, executor) = {
         let mut managers = state.plugin_manager.lock().unwrap();
         let manager = managers
             .as_mut()
             .ok_or_else(|| "plugin runtime is not initialized".to_string())?;
-        ensure_native_plugin_backend(app, manager, &plugin_id)?;
-        manager
-            .executor(&plugin_id)
-            .map_err(|error| error.as_plugin_error().message)?
+        let runtime = manager
+            .registry()
+            .get(&plugin_id)
+            .map(|info| info.runtime);
+        if runtime == Some(PluginRuntime::WebSandbox) {
+            (true, None)
+        } else if runtime.is_none()
+            && market::is_web_plugin(&paths::app_data_dir(app), plugin_id.as_str())
+        {
+            (true, None)
+        } else {
+            ensure_native_plugin_backend(app, manager, &plugin_id)?;
+            let exec = manager
+                .executor(&plugin_id)
+                .map_err(|error| error.as_plugin_error().message)?;
+            (false, Some(exec))
+        }
     };
+    if is_web_sandbox {
+        return market::web_plugin_call(app, request);
+    }
+    let executor = executor.ok_or_else(|| "plugin executor unavailable".to_string())?;
 
     let response = executor.call_with_auto_activate(request);
     if let Some(manager) = state.plugin_manager.lock().unwrap().as_mut() {
@@ -2295,45 +2331,66 @@ fn load_runtime_plugins(plugin_manager: &mut PluginManager, data_dir: &Path) -> 
 }
 
 fn activate_startup_plugins(app: &AppHandle) -> Result<(), String> {
-    startup_log("app_ready worker: locking plugin manager");
+    startup_log("app_ready worker: collecting auto-start plugins");
     let state = host(app);
-    let disabled_plugins = state.settings_clone().plugins.disabled;
-    let mut managers = state.plugin_manager.lock().unwrap();
-    let manager = managers
-        .as_mut()
-        .ok_or_else(|| "plugin runtime is not initialized".to_string())?;
-    let ids = manager
-        .registry()
-        .list()
-        .into_iter()
-        .filter(|info| {
-            let disabled = disabled_plugins
-                .iter()
-                .any(|disabled_id| disabled_id == info.manifest.id.as_str());
-            if disabled && info.manifest.auto_start {
-                startup_log(format!(
-                    "app_ready worker: skipping disabled plugin {}",
-                    info.manifest.id
-                ));
-            }
-            info.manifest.auto_start
-                && !disabled
-                && matches!(
-                    info.runtime,
-                    PluginRuntime::DynamicLibrary | PluginRuntime::ExternalProcess
-                )
-                && matches!(&info.status, PluginStatus::Discovered)
-        })
-        .map(|info| info.manifest.id)
-        .collect::<Vec<_>>();
+    let disabled_plugins = state.settings.lock().unwrap().plugins.disabled.clone();
+    let ids = {
+        let managers = state.plugin_manager.lock().unwrap();
+        let manager = managers
+            .as_ref()
+            .ok_or_else(|| "plugin runtime is not initialized".to_string())?;
+        manager
+            .registry()
+            .list()
+            .into_iter()
+            .filter(|info| {
+                let disabled = disabled_plugins
+                    .iter()
+                    .any(|disabled_id| disabled_id == info.manifest.id.as_str());
+                if disabled && info.manifest.auto_start {
+                    startup_log(format!(
+                        "app_ready worker: skipping disabled plugin {}",
+                        info.manifest.id
+                    ));
+                }
+                info.manifest.auto_start
+                    && !disabled
+                    && matches!(
+                        info.runtime,
+                        PluginRuntime::DynamicLibrary | PluginRuntime::ExternalProcess
+                    )
+                    && matches!(&info.status, PluginStatus::Discovered)
+            })
+            .map(|info| info.manifest.id)
+            .collect::<Vec<_>>()
+    };
+
     for id in ids {
         startup_log(format!("app_ready worker: loading backend {id}"));
-        if let Err(error) = ensure_native_plugin_backend(app, manager, &id) {
-            eprintln!("[sideweave_] startup plugin load failed ({id}): {error}");
-            continue;
-        }
+        let executor = {
+            let mut managers = state.plugin_manager.lock().unwrap();
+            let Some(manager) = managers.as_mut() else {
+                break;
+            };
+            if let Err(error) = ensure_native_plugin_backend(app, manager, &id) {
+                eprintln!("[sideweave_] startup plugin load failed ({id}): {error}");
+                continue;
+            }
+            match manager.executor(&id) {
+                Ok(exec) => exec,
+                Err(error) => {
+                    eprintln!(
+                        "[sideweave_] startup plugin executor lookup failed ({}): {}",
+                        id,
+                        error.as_plugin_error().message
+                    );
+                    continue;
+                }
+            }
+        };
+        // Release global plugin_manager mutex before IPC activate handshake.
         startup_log(format!("app_ready worker: activating {id}"));
-        match manager.activate(&id) {
+        match executor.activate() {
             Ok(response) if response.ok => {
                 startup_log(format!("app_ready worker: activated {id}"));
             }
@@ -2344,12 +2401,16 @@ fn activate_startup_plugins(app: &AppHandle) -> Result<(), String> {
                 error.as_plugin_error().message
             ),
         }
+        if let Some(manager) = state.plugin_manager.lock().unwrap().as_mut() {
+            manager.sync_plugin_status(&id);
+        }
     }
     startup_log("app_ready worker: all startup plugins finished");
     Ok(())
 }
 
 fn reload_installed_plugins(app: &AppHandle) -> Result<(), String> {
+    market::invalidate_resource_cache();
     let data_dir = paths::app_data_dir(app);
     let host_state = host(app);
     let mut managers = host_state.plugin_manager.lock().unwrap();
@@ -2702,8 +2763,12 @@ pub fn run() {
     }
 
     builder
-        .register_uri_scheme_protocol("agile-plugin", |context, request| {
-            market::plugin_resource_response(context.app_handle(), request)
+        .register_asynchronous_uri_scheme_protocol("agile-plugin", |context, request, responder| {
+            let app = context.app_handle().clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                let response = market::plugin_resource_response(&app, request);
+                responder.respond(response);
+            });
         })
         .plugin(autostart)
         .plugin(tauri_plugin_deep_link::init())
@@ -2809,6 +2874,8 @@ pub fn run() {
             let _ = std::fs::create_dir_all(&data_dir);
             let marketplace_handle = handle.clone();
             tauri::async_runtime::spawn(async move {
+                // Delay background marketplace sync so cold boot stays responsive.
+                tokio::time::sleep(Duration::from_secs(4)).await;
                 if let Err(error) = market::refresh_market_cache(&marketplace_handle).await {
                     eprintln!("[marketplace] background refresh failed: {error}");
                 }
@@ -2822,7 +2889,9 @@ pub fn run() {
             load_runtime_plugins(&mut plugin_manager, &data_dir)?;
             startup_log("setup: runtime plugin manifests loaded");
             *host(&handle).plugin_manager.lock().unwrap() = Some(plugin_manager);
-            let loaded_settings = paths::load_json(&paths::state_file(&data_dir))
+            let state_file_path = paths::state_file(&data_dir);
+            let had_state_file = state_file_path.exists();
+            let loaded_settings = paths::load_json(&state_file_path)
                 .map(settings::load_persisted)
                 .unwrap_or_else(|| settings::LoadedSettings {
                     settings: Settings::default(),
@@ -2830,6 +2899,7 @@ pub fn run() {
             let settings::LoadedSettings {
                 settings: mut s,
             } = loaded_settings;
+            let initial_settings = s.clone();
             startup_log("setup: settings loaded");
             migrate::migrate_legacy(&data_dir, &mut s);
             if !s.plugins.permission_grants_initialized {
@@ -2908,17 +2978,20 @@ pub fn run() {
                 performance::PerformanceProfile::parse(&s.general.performance_profile)
                     .unwrap_or_default(),
             );
-            // 首启即写入当前设置结构，旧 OSS 凭据不会再保存。
-            if let Err(error) = persist_settings(&handle, &s) {
-                eprintln!("[sideweave_] {error}");
+            // 仅在首次创建或迁移/权限初始化改变了设置时落盘，避免每次冷启动无谓写盘。
+            if !had_state_file || serde_json::to_value(&s).ok() != serde_json::to_value(&initial_settings).ok() {
+                if let Err(error) = persist_settings(&handle, &s) {
+                    eprintln!("[sideweave_] {error}");
+                }
             }
             startup_log("setup: settings persistence finished");
 
-            // 开机自启状态与设置对齐
+            // 开机自启状态与设置对齐（仅在实际状态与期望不一致时写注册表）
             startup_log("setup: autostart configuration begin");
-            if s.general.run_on_startup {
+            let current_autostart = handle.autolaunch().is_enabled().unwrap_or(!s.general.run_on_startup);
+            if s.general.run_on_startup && !current_autostart {
                 let _ = handle.autolaunch().enable();
-            } else {
+            } else if !s.general.run_on_startup && current_autostart {
                 let _ = handle.autolaunch().disable();
             }
             startup_log("setup: autostart configuration finished");
@@ -2978,11 +3051,14 @@ pub fn run() {
             startup_log("setup: tray created");
 
             let prewarm_handle = handle.clone();
-            std::thread::spawn(move || {
-                std::thread::sleep(Duration::from_millis(1500));
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(1500)).await;
                 startup_log("prewarm: begin");
-                prewarm_windows(&prewarm_handle);
-                startup_log("prewarm: scheduled");
+                let main_handle = prewarm_handle.clone();
+                let _ = prewarm_handle.run_on_main_thread(move || {
+                    prewarm_windows(&main_handle);
+                    startup_log("prewarm: scheduled");
+                });
             });
 
             if has_initial_market_link {

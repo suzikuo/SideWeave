@@ -387,7 +387,7 @@ function subscribe<T>(topic: string, eventName: string) {
 }
 
 watch(() => [props.skinId, props.surface, props.enabled] as const, () => void loadSurface(), { immediate: true })
-watch(() => props.context, sendContext, { deep: true })
+watch(() => props.context, sendContext)
 onMounted(() => {
   window.addEventListener('message', onMessage)
   themeObserver = new MutationObserver(() => {
@@ -406,9 +406,7 @@ onMounted(() => {
     attributeFilter: ['data-theme', 'data-skin', 'style']
   })
   themeObserver.observe(document.head, {
-    childList: true,
-    subtree: true,
-    characterData: true
+    childList: true
   })
   subscribe('settings://changed', 'settingsChanged')
   subscribe<boolean>('sidebar://expanded', 'sidebarExpanded')

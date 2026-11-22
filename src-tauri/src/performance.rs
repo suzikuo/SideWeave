@@ -161,8 +161,11 @@ impl PerformanceManager {
         }
     }
 
-    pub fn effective_policy(&self, user_hover_delay: Option<u32>) -> PerformancePolicy {
-        match self.effective_profile() {
+    fn policy_for_profile(
+        profile: PerformanceProfile,
+        user_hover_delay: Option<u32>,
+    ) -> PerformancePolicy {
+        match profile {
             PerformanceProfile::Eco => PerformancePolicy {
                 detail_prewarm: false,
                 detail_keep_alive: false,
@@ -188,6 +191,10 @@ impl PerformanceManager {
         }
     }
 
+    pub fn effective_policy(&self, user_hover_delay: Option<u32>) -> PerformancePolicy {
+        Self::policy_for_profile(self.effective_profile(), user_hover_delay)
+    }
+
     pub fn status_payload(&self, user_hover_delay: Option<u32>) -> PerformanceStatusPayload {
         let user_profile = self.user_profile();
         let memory = query_system_memory();
@@ -198,30 +205,7 @@ impl PerformanceManager {
                 .unwrap_or(PerformanceProfile::Balanced),
             other => other,
         };
-        let policy = match effective_profile {
-            PerformanceProfile::Eco => PerformancePolicy {
-                detail_prewarm: false,
-                detail_keep_alive: false,
-                preview_prewarm: false,
-                preview_keep_alive: false,
-                hover_delay_ms: 350,
-            },
-            PerformanceProfile::Balanced => PerformancePolicy {
-                detail_prewarm: false,
-                detail_keep_alive: true,
-                preview_prewarm: false,
-                preview_keep_alive: true,
-                hover_delay_ms: user_hover_delay.unwrap_or(350),
-            },
-            PerformanceProfile::Performance => PerformancePolicy {
-                detail_prewarm: true,
-                detail_keep_alive: true,
-                preview_prewarm: true,
-                preview_keep_alive: true,
-                hover_delay_ms: 200,
-            },
-            PerformanceProfile::Auto => unreachable!(),
-        };
+        let policy = Self::policy_for_profile(effective_profile, user_hover_delay);
 
         PerformanceStatusPayload {
             user_profile,
